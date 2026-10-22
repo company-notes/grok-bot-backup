@@ -67,7 +67,14 @@ copy_tree() {
   fi
 }
 
-# --- Per-agent durable state ---
+# --- Preserve ALL agent-data/agents entries, whether or not they are assistants. ---
+# The agents/ root also contains organization/, people/, procedures/, top-level
+# JSON files, and sometimes other platform data. Copy the complete source tree
+# (including hidden files and private/), then count only genuine agent IDs.
+[[ -d "$AGENT_DATA/agents" ]] || die "Agent directory missing: $AGENT_DATA/agents"
+cp -a "$AGENT_DATA/agents/." "$DEST/agents/"
+
+# --- Per-agent identity summary (only real UUID-named assistants) ---
 shopt -s nullglob
 AGENT_DIRS=("$AGENT_DATA"/agents/*/)
 shopt -u nullglob
@@ -83,9 +90,7 @@ for agent_dir in "${AGENT_DIRS[@]}"; do
   out="$DEST/agents/${agent_id}"
   mkdir -p "$out"
 
-  # Preserve every accessible per-agent file, including private/, hidden files,
-  # attached data and SQLite sidecar files. Never filter based on sensitivity.
-  cp -a "${agent_dir}." "$out/"
+  # The full agent tree has already been copied above. Only add a name index.
 
   # name for index
   if [[ -f "${agent_dir}profile.json" ]] && command -v python3 >/dev/null; then
@@ -146,6 +151,7 @@ rm -f "$DEST/meta/.program.out"
 # --- Manifest ---
 python3 - "$DEST" "$AGENT_DATA" "$AGENT_DATA_REAL" "$STAMP" "$AGENT_COUNT" "$PROGRAM_COMMIT" <<'PY'
 import json, os, sys, hashlib, pathlib
+from grok_bot_backup.common import valid_agent_id
 from datetime import datetime, timezone
 
 dest = pathlib.Path(sys.argv[1])
@@ -174,7 +180,9 @@ agents = []
 agents_dir = dest / "agents"
 if agents_dir.is_dir():
     for d in sorted(agents_dir.iterdir()):
-        if not d.is_dir():
+        if not d.is_dir() or not valid_agent_id(d.name):
+            continue
+        if not ((d / "profile.json").is_file() or (d / "settings.json").is_file()):
             continue
         name = None
         np = d / "_export_name.txt"
@@ -195,13 +203,13 @@ manifest = {
     "agent_count": agent_count,
     "agents": agents,
     "included": [
-        "agents/<UUID>/** (all accessible per-agent files, including private/)",
-        "agent attachments, notes, audit records and SQLite sidecars (raw file copies)",
+        "agents/** (full local agents tree: UUID assistants AND non-assistant data)",
+        "organization/, people/, procedures/, active-agent.json, audit-outbox.json when present",
         "agent SQLite files may be live copies; database consistency is not guaranteed",
         "shared/workflows (user skills)",
         "shared/user-memory, shared/projects (if present)",
         "shared/agent-transcripts (excluding sand-subagent-* unless INCLUDE_SUBAGENTS=1)",
-        "workspace/ (excludes only backup output and, by default, bulky directories; see meta/workspace-copy.json)",
+        "workspace/ (excludes backup output and old generated archives, explicit excludes and default bulky directories; see meta/workspace-copy.json)",
         "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, attachment-index.md, frozen supplement)",
         "meta/backup-program/ (repo source at HEAD + COMMIT)",
         "platform-memory/ human-readable RecallMemory drops when MEMORY_DROP exists",
@@ -243,7 +251,7 @@ readme = f"""# Grok Bot box export ({stamp})
 Exported from shared box computer.
 
 ## What's inside
-- `agents/<agent-id>/` — profile, settings, avatar, memory, routines, attachments, reference, sqlite stores
+- `agents/` — all available agent-tree data, including UUID assistants, organization/people/procedures folders and top-level metadata files
 - `shared/workflows/` — user-authored skills
 - `conversations/` — **full chat history of every assistant** (one folder per display name, monthly Markdown, Asia/Taipei); start at `conversations/README.md`
 - `shared/agent-transcripts/` — locally available transcript JSONL with tool calls (may be stale)
@@ -255,7 +263,7 @@ Exported from shared box computer.
 - `meta/backup-program/` — the backup program used (repo source at commit `{program_commit}`)
 
 ## Excluded on purpose
-Host files outside selected trees and, by default, sand-subagent transcripts. Workspace exports, explicit exclusions, and optional bulky directories are recorded in `meta/workspace-copy.json`.
+Host files outside selected trees and, by default, sand-subagent transcripts. Current output roots, prior grok-bot-export-* and virtual-office-* folders/archives, explicit excludes and optional bulky directories are listed in `meta/workspace-copy.json`.
 
 ## Re-run
 ```bash

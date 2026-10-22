@@ -1,11 +1,13 @@
 """Safety regression tests: never copy a backup into its own workspace export."""
 import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from grok_bot_backup.common import valid_agent_id
+from grok_bot_backup.conversations import index_agent_ids
 from grok_bot_backup.workspace import copy_workspace
 from grok_bot_backup import virtual_office
 
@@ -58,6 +60,21 @@ class BackupSafetyTests(unittest.TestCase):
             source.mkdir()
             with self.assertRaises(ValueError):
                 copy_workspace(source, source / "target", Path(tmp))
+
+    def test_platform_non_assistant_ids_do_not_create_conversation_folders(self):
+        db = sqlite3.connect(":memory:")
+        db.execute("create table agents (agent_id text)")
+        db.execute("create table messages (agent_id text)")
+        real_id = "00000000-0000-0000-0000-000000000001"
+        db.executemany("insert into agents values (?)", [
+            ("organization",), ("people",), ("procedures",),
+            (real_id,), (None,),
+        ])
+        db.executemany("insert into messages values (?)", [
+            ("organization",), ("people",), (real_id,),
+        ])
+        self.assertEqual(index_agent_ids(db), [real_id])
+        db.close()
 
     def test_non_agent_named_folders_are_not_agents(self):
         self.assertFalse(valid_agent_id("organization"))

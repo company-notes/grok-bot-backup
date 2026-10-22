@@ -107,12 +107,12 @@ This is a portable virtual employee/role package that a person can read or impor
 |---|---|
 | `profile.md` | Name, role, and behavior guidelines |
 | `avatar.*` | Avatar image |
-| `conversations/` | **Full conversations**(one .md file per month, Taipei time;`README.md` is the index) |
-| `memory/`、`memory-summary.md` | Long-term memory(local files, frozen since 2026-10-06) |
+| `conversations/` | **Full conversations** (one Markdown file per month, Taipei time; see README.md) |
+| `memory/`, `memory-summary.md` | Long-term memory (local files frozen since 2026-10-06) |
 | `notes-and-profiles/` | All assistant notes, preserving their directory structure |
 | `attachments-and-work/` | Chat attachments and outputs (hash-based filenames; see `conversations/attachment-index.md`) |
 | `references/` | Role reference documents |
-| `routines/` | routines(if present) |
+| `routines/` | Scheduled routines (if present) |
 """)
     id_to_name[agent_dir.name] = name
     return name
@@ -125,7 +125,7 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
     folder = dest_groups / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
     members = group.get("memberIds") or []
-    member_lines = [f"- {id_to_name.get(mid, mid)}(`{mid}`)" for mid in members]
+    member_lines = [f"- {id_to_name.get(mid, mid)} (`{mid}`)" for mid in members]
     write(folder / "group-profile.md", f"""# Group: {name}
 
 - Internal ID: `{group_dir.name}`
@@ -145,7 +145,7 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
             copy_if(p, folder / "memory" / p.relative_to(mem))
     write(folder / "README.md", f"""# Group: {name}
 
-人可讀群組包。Members名單see `group-profile.md`；Group conversations: `conversations/`(if present)。
+Human-readable group package. See group-profile.md for members and conversations/ for group chat (if available).
 """)
 
 
@@ -196,7 +196,7 @@ def export_shared(dest_shared: pathlib.Path) -> None:
 | Folder | Description |
 |---|---|
 | `company/` | Company charter, responsibilities, project memory, and source presentations |
-| `shared-agent-memory/` | Short shared facts available to all assistants(local files, frozen since 2026-10-06) |
+| `shared-agent-memory/` | Short shared facts available to all assistants (local files frozen since 2026-10-06) |
 | `skills-and-workflows/` | Reusable skills |
 | `workspace-outputs/` | Shared-box work products (e.g., accounting) |
 """)
@@ -245,24 +245,24 @@ def main() -> None:
     # ---- copy of this program (repo at HEAD + commit hash)
     prog = snapshot_program(DEST / "99-backup-program")
 
-    roster = ["# Roster"] + [f"- {n}(`{i}`)" for i, n in sorted(id_to_name.items(), key=lambda x: x[1])]
+    roster = ["# Roster"] + [f"- {n} (`{i}`)" for i, n in sorted(id_to_name.items(), key=lambda x: x[1])]
     write(DEST / "roster.md", "\n".join(roster))
 
     total_msgs = sum(s["messages"] for s in conv_stats)
     write(DEST / "README.md", f"""# Human-readable Virtual Office export
 
 - Export time (UTC): `{STAMP}`
-- Purpose: **readable by people and portable to another virtual office**，not an internal Grok Bot restore image
-- The readable package is not a byte-for-byte copy; for raw data also inspect `grok-bot-export` .
-- Full backup: All notes, attachments and conversations are included(no private-content filtering since 2026-10-09)
+- Purpose: readable by people and portable to another virtual office; not an internal Grok Bot restore image
+- The readable package is not byte-for-byte equivalent to the original data; inspect grok-bot-export for raw state.
+- Full backup: all available notes, attachments and conversations are included (no private-content filtering since 2026-10-09).
 - Conversations: {len([s for s in conv_stats if s['messages']])} assistants/groups, totaling {total_msgs} messages (platform-synced search-index.db, including messages after 2026-10-06)
-- Backup program version: commit `{prog.get('commit')}`(full source snapshot at `99-backup-program/source/`)
+- Backup program version: commit `{prog.get('commit')}` (full source in 99-backup-program/source/)
 
 ## Contents
 
-- `conversation-index.md` — **Conversation overview for all assistants**(counts, date ranges, links)
+- conversation-index.md — conversation overview for all assistants (counts, ranges, links)
 - `00-shared/` — Company knowledge, shared memory, skills and deliverables
-- `01-assistants/<name>/` — profiles, avatars, memory, **conversations/(monthly .md files)**、notes and attachments
+- 01-assistants/<name>/ — profiles, avatars, memory, monthly conversation Markdown, notes and attachments
 - `02-groups/<name>/` — group metadata and conversations
 - `99-backup-program/` — source code, commit and conversation statistics for this backup
 - `roster.md`
@@ -273,8 +273,8 @@ After extraction: `grep -rn "keyword" 01-assistants/*/conversations/`
 
 ## Known limitations
 
-- Memory phase 1: if `/workspace/exports/memory-drop/` contains drops, they are copied into `00-shared/memory/` and each assistant's `memory/platform-memory.md`(see `memory-index.md`)。Missing drops are marked「not exported」。Local memory files remain frozen as of 2026-10-06 15:10.
-- The platform index contains only visible chat text; tool calls/results exist only in「the frozen transcript supplement」(through approximately 2026-09-16)。
+- Memory phase 1: available drops from /workspace/exports/memory-drop/ are written to 00-shared/memory/ and the assistant memory/platform-memory.md files (see memory-index.md). Missing drops are labeled 'not exported'. Local memory files are frozen as of 2026-10-06 15:10.
+- The platform index contains only visible chat text; tool calls and results are in the frozen local transcript supplement (until around 2026-09-16).
 - For group conversations, the index does not identify which assistant spoke.
 """)
 

@@ -189,7 +189,7 @@ def _index_markdown(status: dict) -> str:
         "# Platform memory index (phase 1)",
         "",
         "Source: `/workspace/exports/memory-drop/` (RecallMemory drop).",
-        "Assistants without drops are marked「not exported」，; the backup continues.",
+        "Assistants without memory drops are marked 'not exported'; the backup continues.",
         "Local memory/ files (frozen since 2026-10-06) are retained separately from platform memory.",
         "",
         "## Shared memory (scope=user)",
@@ -198,15 +198,15 @@ def _index_markdown(status: dict) -> str:
     if status["shared_user"] is None:
         lines.append("- not exported")
     else:
-        lines.append(f"- exported : {status['shared_user']['count']} records → `00-shared/memory/`")
+        lines.append(f"- Exported: {status['shared_user']['count']} records → 00-shared/memory/")
     lines += ["", "## Per assistant", ""]
     for a in status["agents"]:
         tag = "" if a["required"] else " (optional)"
         if not a["dropped"]:
-            lines.append(f"- {a['name']}{tag} : not exported")
+            lines.append(f"- {a['name']}{tag}: not exported")
         else:
             bits = ", ".join(f"{k} {n} records" for k, n in a["files"].items())
-            lines.append(f"- {a['name']}{tag} : exported({bits})")
+            lines.append(f"- {a['name']}{tag}: exported ({bits})")
     if status["extra_ids"]:
         lines += ["", "## Additional drops not in the configured roster", ""]
         for i in status["extra_ids"]:
@@ -241,7 +241,7 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
 | `shared-memory.md` | Human-readable, grouped by tier (persistent profile, assistant-owned log/note) |
 | `memory-user.jsonl` | Original drop data, one JSONL record per line |
 
-Frozen local copies remain in `../shared-agent-memory/` (for Virtual Office exports) or in the Grok raw export at `shared/user-memory/`。
+Frozen local copies remain under ../shared-agent-memory/ (Virtual Office export) or shared/user-memory/ (raw Grok export).
 """)
     else:
         write(shared_dir / "README.md", "# Shared memory\n\nnot exported\n")
@@ -272,7 +272,7 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
         if existing is not None:
             note = mem / "platform-memory.md"
             if not note.exists():
-                write(note, f"# Platform memory\n\nnot exported\n\n({label}，`{agent_id}`)\n")
+                write(note, f"# Platform memory\n\nnot exported\n\n({label}, `{agent_id}`)\n")
         return
     files = _agent_drop_files(drop_dir)
     rows: list[dict] = []

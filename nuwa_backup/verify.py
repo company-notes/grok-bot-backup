@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+from datetime import datetime, timezone
 import pathlib
 import re
 import sqlite3
@@ -26,9 +28,22 @@ def main() -> None:
     ap.add_argument("export_dir")
     ap.add_argument("--archive")
     ap.add_argument("--date", help="Optional day to require at least one message (YYYY-MM-DD)")
+    ap.add_argument("--strict", action="store_true",
+                    help="Treat missing or stale memory drops as verification failures")
     a = ap.parse_args()
     root = pathlib.Path(a.export_dir)
     ok = True
+    max_age_days = float(os.environ.get("MEMORY_MAX_AGE_DAYS", "2"))
+    if max_age_days < 0:
+        raise SystemExit("MEMORY_MAX_AGE_DAYS cannot be negative")
+
+    def warn(message):
+        nonlocal ok
+        if a.strict:
+            ok = False
+            print("FAIL " + message)
+        else:
+            print("WARN " + message)
 
     def check(cond, msg):
         nonlocal ok
@@ -87,34 +102,63 @@ def main() -> None:
     check(not missing, f"all notes files included ({len(src) - len(missing)}/{len(src)})")
     for p in missing[:20]:
         print(f"     missing: {p.relative_to(AGENT_DATA)}")
-    # platform memory phase 1: if a drop exists, the export must reflect it (or say not exported)
-    mem_index = next((p for p in [
+    # Memory freshness is based on the original file's modification time.
+    # shutil.copy2 preserves it in the export, so no live source is required.
+    # Snapshot cutoff is used instead of current wall time for repeatable checks.
+    mem_index = next((p for p in (
         root / "memory-index.md",
         root / "platform-memory" / "memory-index.md",
-    ] if p.exists()), None)
-    if mem_index is None:
-        check(False, "memory-index.md present (phase 1)")
-    else:
-        idx = mem_index.read_text(encoding="utf-8")
-        check("not exported" in idx or "exported" in idx, "memory index mentions exported or not exported")
-        # shared jsonl, if present in the drop, must be copied
-        import hashlib as _hashlib
-        drop = pathlib.Path(__import__("os").environ.get("MEMORY_DROP", "/workspace/exports/memory-drop"))
+    ) if p.exists()), None)
+    check(mem_index is not None, "memory-index.md present")
+    if mem_index:
+        content = mem_index.read_text(encoding="utf-8")
+        check("not exported" in content or "exported" in content,
+              "memory index includes export status")
 
-        def sha(path: pathlib.Path) -> str:
-            return _hashlib.sha256(path.read_bytes()).hexdigest()
+    def memory_files(agent):
+        if (root / "conversations").exists():
+            return sorted((root / "agents" / agent["agent_id"] / "platform-memory").glob("*.jsonl"))
+        conv_dir = root / agent["conv_dir"]
+        return sorted((conv_dir.parent / "memory").glob("*.jsonl"))
 
-        exported_sha = {sha(p) for p in root.rglob("*.jsonl") if p.is_file()}
-        shared = drop / "shared-user" / "memory-user.jsonl"
-        if shared.is_file():
-            check(sha(shared) in exported_sha, "shared memory-user.jsonl copied into export")
-        agent_dirs = sorted((drop / "agents").glob("*")) if (drop / "agents").is_dir() else []
-        for agent_dir in agent_dirs:
-            blobs = [p for p in agent_dir.glob("*.jsonl") if p.is_file()]
-            if not blobs:
+    cutoff_seconds = cutoff / 1000
+    for agent in st["agents"]:
+        if agent.get("kind") != "agent":
+            continue
+        name = agent["name"]
+        files = memory_files(agent)
+        if not files:
+            warn(f"{name} ({agent['agent_id']}): no platform memory drop found")
+            continue
+        ages = []
+        for mem_file in files:
+            modified = mem_file.stat().st_mtime
+            age = (cutoff_seconds - modified) / 86400
+            ages.append(age)
+            stamp = datetime.fromtimestamp(modified, timezone.utc).isoformat()
+            print(f"MEMORY {name}: {mem_file.name}, exported/modified {stamp}, "
+                  f"age at backup {age:.2f} days")
+        if any(age > max_age_days for age in ages):
+            warn(f"{name}: memory drop older than {max_age_days:g} days "
+                 f"(oldest {max(ages):.2f} days)")
+        if any(age < -0.01 for age in ages):
+            warn(f"{name}: memory drop timestamp is later than backup cutoff")
+
+    # Compare copied platform drops to the input set when the live source is
+    # still available. Do not use current source mtimes to assess backup age.
+    drop = pathlib.Path(os.environ.get(
+        "MEMORY_DROP", str(pathlib.Path(os.environ.get("WORKSPACE", "/workspace")) / "exports" / "memory-drop")))
+    exported_sha = {sha(p) for p in root.rglob("*.jsonl") if p.is_file()}
+    shared = drop / "shared-user" / "memory-user.jsonl"
+    if shared.is_file():
+        check(sha(shared) in exported_sha, "shared memory-user.jsonl copied into export")
+    if (drop / "agents").is_dir():
+        for agent_dir in (drop / "agents").iterdir():
+            if not agent_dir.is_dir():
                 continue
-            missing = [p.name for p in blobs if sha(p) not in exported_sha]
-            check(not missing, f"memory drop copied for {agent_dir.name[:8]}"
+            missing = [p.name for p in agent_dir.glob("*.jsonl")
+                       if p.is_file() and sha(p) not in exported_sha]
+            check(not missing, f"memory drop copied for {agent_dir.name}"
                   + ("" if not missing else " missing " + ",".join(missing)))
 
     print("RESULT", "OK" if ok else "FAILED")

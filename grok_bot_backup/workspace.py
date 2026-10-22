@@ -16,6 +16,21 @@ def bulky(name: str) -> bool:
     return name.startswith(".venv") or name in {".cache", "node_modules", "__pycache__", ".git"}
 
 
+def generated_backup_artifact(path: Path) -> str | None:
+    """Omit old exports wherever they live, even when OUT_ROOT changes.
+
+    Only directories and supported archive files count: ordinary documents
+    with a similar prefix are not treated as previously generated backups.
+    """
+    if not path.name.startswith(("grok-bot-export-", "virtual-office-")):
+        return None
+    if path.is_dir():
+        return "previous backup directory"
+    if path.is_file() and path.name.endswith((".tar.gz", ".tgz", ".tar", ".zip")):
+        return "previous backup archive"
+    return None
+
+
 def enabled() -> bool:
     value = os.environ.get("INCLUDE_BULKY_DIRS", "0")
     if value not in ("0", "1"):
@@ -67,6 +82,8 @@ def copy_workspace(src: Path, dst: Path, out_root: Path) -> dict:
             target = path.resolve()
             reason = next((why for root, why in excluded.items()
                            if target == root or root in target.parents), None)
+            if reason is None:
+                reason = generated_backup_artifact(path)
             if reason is None and not include and path.is_dir() and bulky(name):
                 reason = "bulky directory"
             if reason is not None:

@@ -19,10 +19,10 @@ from . import conversations
 from .memory_drop import apply_tree as apply_memory_drop
 from .common import (
     AGENT_DATA, OUT_ROOT, WORKSPACE, add_deprecated_private_args, copy_if,
-    lock_down, safe_name, utc_stamp, warn_deprecated_private_args, write,
+    lock_down, safe_name, utc_stamp, warn_deprecated_private_args, write, valid_agent_id,
 )
 from .program import snapshot_program
-from .workspace import bulky, enabled as include_bulky_dirs
+from .workspace import copy_workspace
 
 STAMP = utc_stamp()
 DEST = OUT_ROOT / f"virtual-office-{STAMP}"
@@ -35,7 +35,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     name = profile.get("name") or agent_dir.name
     if name.strip() == "New Bot" and not (profile.get("description") or "").strip():
-        name = "New Bot(not configured)"
+        name = "New Bot (not configured)"
     folder = dest_agents / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -74,7 +74,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
         for p in mem.rglob("*"):
             if p.is_file():
                 copy_if(p, folder / "memory" / p.relative_to(mem))
-        parts = ["# Memory summary\n", "> Note: local memory files stopped updating on 2026-10-06 15:10. Later platform memories require separate export.\n"]
+        parts = ["# Memory summary\n", "> Local memory files may be incomplete or outdated; consult memory-index.md for platform memory drops.\n"]
         for p in sorted(mem.rglob("*.md")):
             parts.append(f"## {p.relative_to(mem)}\n\n{p.read_text(encoding='utf-8', errors='replace')}\n")
         write(folder / "memory-summary.md", "\n".join(parts))
@@ -85,11 +85,11 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
             if p.is_file():
                 copy_if(p, folder / "routines" / p.relative_to(auto))
 
-    for src_name, dst_name in [("attachments", "attachments-and-work"), ("reference", "references")]:
+    for src_name, dst_name in [("attachments", "attachments-and-work"), ("reference", "references"), ("private", "private")]:
         src = agent_dir / src_name
         if src.exists():
             for p in src.rglob("*"):
-                if p.is_file() and ".uploads" not in p.parts:
+                if p.is_file():
                     copy_if(p, folder / dst_name / p.relative_to(src))
 
     # notes: copy all files in their source structure (no private-content filtering since 2026-10-09)
@@ -141,7 +141,7 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
 """)
     mem = group_dir / "memory"
     if mem.exists():
-        for p in mem.rglob("*.md"):
+        for p in mem.rglob("*"):
             copy_if(p, folder / "memory" / p.relative_to(mem))
     write(folder / "README.md", f"""# Group: {name}
 
@@ -149,57 +149,34 @@ Human-readable group package. See group-profile.md for members and conversations
 """)
 
 
-def export_shared(dest_shared: pathlib.Path) -> None:
+def export_shared(dest_shared: pathlib.Path) -> dict:
+    """Copy shared data, including the workspace without recursive export paths."""
     dest_shared.mkdir(parents=True, exist_ok=True)
-    with_bulky = include_bulky_dirs()
-    company = WORKSPACE / "company"
-    if company.exists():
-        for p in company.rglob("*"):
-            if p.is_file() and "exports" not in p.parts:
-                rel = p.relative_to(company)
-                if any(part.startswith(".") for part in rel.parts):
-                    continue
-                copy_if(p, dest_shared / "company" / rel)
-    proj = AGENT_DATA / "projects" / "nuwa-company"
-    if proj.exists():
-        write(dest_shared / "company" / "project-overview.md",
-              (proj / "project.md").read_text(encoding="utf-8") if (proj / "project.md").exists() else "")
-        mem_root = proj / "memory" / "by-agent"
-        if mem_root.exists():
-            for shard in mem_root.iterdir():
-                if shard.is_dir():
-                    for p in shard.rglob("*.md"):
-                        copy_if(p, dest_shared / "company" / "project-memory" / shard.name / p.relative_to(shard))
-    um = AGENT_DATA / "user-memory"
-    if um.exists():
-        for p in um.rglob("*.md"):
-            copy_if(p, dest_shared / "shared-agent-memory" / p.relative_to(um))
-    wf = AGENT_DATA / "workflows"
-    if wf.exists():
-        for p in wf.rglob("*"):
-            if p.is_file():
-                copy_if(p, dest_shared / "skills-and-workflows" / p.relative_to(wf))
-    wp = dest_shared / "workspace-outputs"
-    for item in WORKSPACE.iterdir():
-        if item.name in {"exports", "scripts", "uploads", "company"}:
-            continue
-        if not with_bulky and bulky(item.name) and item.is_dir():
-            continue
-        if item.is_file():
-            copy_if(item, wp / item.name)
-        elif item.is_dir():
-            for p in item.rglob("*"):
-                if p.is_file() and (with_bulky or not any(bulky(part) for part in p.relative_to(item).parts)):
-                    copy_if(p, wp / item.name / p.relative_to(item))
+    project_root = AGENT_DATA / "projects"
+    if project_root.is_dir():
+        for project in project_root.iterdir():
+            if project.is_dir():
+                shutil.copytree(project, dest_shared / "projects" / project.name,
+                                symlinks=True, dirs_exist_ok=True)
+    for src_name, dst_name in [("user-memory", "shared-agent-memory"),
+                               ("workflows", "skills-and-workflows")]:
+        src = AGENT_DATA / src_name
+        if src.is_dir():
+            shutil.copytree(src, dest_shared / dst_name,
+                            symlinks=True, dirs_exist_ok=True)
+
+    # Same safe copier as raw export: never recursively copy export directories.
+    report = copy_workspace(WORKSPACE, dest_shared / "workspace-outputs", OUT_ROOT)
     write(dest_shared / "README.md", """# Shared area
 
 | Folder | Description |
 |---|---|
-| `company/` | Company charter, responsibilities, project memory, and source presentations |
-| `shared-agent-memory/` | Short shared facts available to all assistants (local files frozen since 2026-10-06) |
-| `skills-and-workflows/` | Reusable skills |
-| `workspace-outputs/` | Shared-box work products (e.g., accounting) |
+| `projects/` | All available platform projects |
+| `shared-agent-memory/` | Locally stored shared memories |
+| `skills-and-workflows/` | User-defined workflows and skills |
+| `workspace-outputs/` | Workspace files subject to the documented exclusion policy |
 """)
+    return report
 
 
 def main() -> None:
@@ -209,6 +186,8 @@ def main() -> None:
     warn_deprecated_private_args(args)
 
     os.umask(0o077)
+    print("WARNING: Unencrypted full-data backup; secrets, credentials, and private files may be included.", flush=True)
+    print(f"WORKSPACE={WORKSPACE}; OUT_ROOT={OUT_ROOT}; BACKUP_EXCLUDE_PATHS={os.environ.get('BACKUP_EXCLUDE_PATHS', '')}", flush=True)
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     if DEST.exists():
         shutil.rmtree(DEST)
@@ -219,12 +198,13 @@ def main() -> None:
     dest_agents, dest_groups, dest_shared = DEST / "01-assistants", DEST / "02-groups", DEST / "00-shared"
 
     for d in sorted(agents_root.iterdir()):
-        if d.is_dir() and (d / "profile.json").exists() and not (d / "group.json").exists():
+        if d.is_dir() and valid_agent_id(d.name) and (d / "profile.json").exists() and not (d / "group.json").exists():
             export_agent(d, dest_agents, id_to_name)
     for d in sorted(agents_root.iterdir()):
-        if d.is_dir() and (d / "group.json").exists():
+        if d.is_dir() and valid_agent_id(d.name) and (d / "group.json").exists():
             export_group(d, dest_groups, id_to_name)
-    export_shared(dest_shared)
+    workspace_report = export_shared(dest_shared)
+    write(DEST / 'workspace-copy.json', json.dumps(workspace_report, ensure_ascii=False, indent=2))
     mem_status = apply_memory_drop(DEST, id_to_name)
 
     # ---- full conversations from the platform-synced search index

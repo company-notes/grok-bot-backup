@@ -28,7 +28,7 @@ from .common import (
     load_json, taipei, unknown_agent_entry, write,
 )
 
-USER_LABEL = os.environ.get("NUWA_BACKUP_USER_LABEL", "User")
+USER_LABEL = os.environ.get("GROK_BACKUP_USER_LABEL", os.environ.get("NUWA_BACKUP_USER_LABEL", "User"))
 GROUP_ASSISTANT_LABEL = "Assistant (group; speaker unspecified by index)"
 ATTACH_RE = re.compile(r"attachments/([0-9a-f]{64})")
 

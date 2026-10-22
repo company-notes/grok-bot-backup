@@ -82,6 +82,7 @@ class MemoryFreshnessTests(unittest.TestCase):
             code, output = self._run(export, data, True)
             self.assertEqual(code, 0)
             self.assertIn("MEMORY Test Agent", output)
+            self.assertIn("file modified (UTC): 2026-10-21T09:00:00+00:00", output)
 
 
 if __name__ == "__main__":

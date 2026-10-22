@@ -13,7 +13,6 @@ import pathlib
 import re
 import sqlite3
 import tarfile
-from datetime import datetime
 
 import hashlib
 
@@ -136,7 +135,7 @@ def main() -> None:
             age = (cutoff_seconds - modified) / 86400
             ages.append(age)
             stamp = datetime.fromtimestamp(modified, timezone.utc).isoformat()
-            print(f"MEMORY {name}: {mem_file.name}, exported/modified {stamp}, "
+            print(f"MEMORY {name}: {mem_file.name}, file modified (UTC): {stamp}, "
                   f"age at backup {age:.2f} days")
         if any(age > max_age_days for age in ages):
             warn(f"{name}: memory drop older than {max_age_days:g} days "

@@ -2,7 +2,7 @@
 
 Unofficial, open-source export utilities for **Grok Bot** shared-box environments. Keep as much accessible data as possible in two forms: raw files and human-readable Markdown for handover to another AI assistant or a person.
 
-**Status:** The previous Virtual Office implementation had a severe recursive-copy bug that filled a shared box disk. The subsequent fix has passed an actual shared-box run, including raw and readable exports and strict freshness checks. This revision adds completeness fixes and further regression tests; **run a fresh-box validation before depending on the new revision in production.** This project is not a one-click restore tool.
+**Status:** Successfully tested from a fresh clone on a real Grok Bot shared box (commit `667bdda`): raw and human-readable exports, complete available agent files, matching conversation counts, exclusion safeguards, and strict memory-file freshness checks all passed. This does not prove that the platform exposed every memory or guarantee compatibility with other environments. **Verify backups on your own box before relying on them.** This project is not a one-click restore tool.
 
 ## Quick start
 
@@ -11,8 +11,6 @@ Requirements: Linux, Bash, Python 3.12+, Git, tar, and **filesystem access** to 
 ```bash
 git clone https://github.com/company-notes/grok-bot-backup.git
 cd grok-bot-backup
-cp config.example.json config.json  # Optional: edit your assistant roster
-
 python3 -m unittest discover -s tests -v
 bin/export-grok-bot-backup.sh         # Raw data + portable conversations
 bin/export-virtual-office.sh         # Human-readable Markdown handover
@@ -21,6 +19,33 @@ bin/export-virtual-office.sh         # Human-readable Markdown handover
 Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository.
 
 **Disk-space planning:** there is no fixed minimum. Size depends on your source data. Allow room for the uncompressed export directory **and** its compressed archive, plus headroom for other agents using the box. If the disk is limited, consider excluding large regenerable directories or choosing an external `OUT_ROOT`.
+
+### Optional assistant roster configuration
+
+**No configuration file is required for a first run.** Leave `config.json` absent: the exporter discovers actual assistant IDs from the accessible platform data and verifies their available conversation and memory files.
+
+Only create a config file if you want to explicitly list assistants whose memory drops you expect:
+
+```bash
+cp config.example.json config.json
+# Edit config.json and replace the empty list with your real assistant UUIDs.
+```
+
+The shipped `config.example.json` uses `"expected_agents": []`, so copying it unchanged does **not** introduce nonexistent example assistants. For an explicitly tracked assistant, use the following format (replace the example UUID and display name):
+
+```json
+{
+  "expected_agents": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "My assistant",
+      "required": true
+    }
+  ]
+}
+```
+
+Use `required: true` only for assistants you actually expect on your own box; `required: false` marks an optional assistant. The roster controls expectations for memory-drop reporting, not what private or shared content is copied. The backup will not filter content by sensitivity.
 
 ## Selective exclusions: full content by default
 
@@ -100,7 +125,7 @@ MEMORY_MAX_AGE_DAYS=2 bin/verify-export.sh /path/to/export --strict
 bin/verify-export.sh /path/to/export --date YYYY-MM-DD
 ```
 
-The verifier prints each available assistant's memory-file modification timestamp and age relative to the backup snapshot. It lists missing drops by assistant name. A missing/stale drop is a **WARN** (exit 0 if other checks pass); with `--strict` it becomes **FAIL** (nonzero exit). This check does not prove that all memories have been retrieved—it detects absent or aging export files.
+The verifier prints each available assistant's memory-file last-modified timestamp explicitly in **UTC**, and the age relative to the backup snapshot. File modification time is only a proxy for when the memory was exported, not proof that the retrieved content is complete. It lists missing drops by assistant name. A missing/stale drop is a **WARN** (exit 0 if other checks pass); with `--strict` it becomes **FAIL** (nonzero exit). This check does not prove that all memories have been retrieved—it detects absent or aging export files.
 
 Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `platform-memory/memory-index.md` for included data, exclusions, and RecallMemory status. The readable export has `memory-index.md`, `conversation-index.md`, and `workspace-copy.json`. Verification compares conversation messages against the live search index and checks exported notes and memory drops; check the source before assuming universal compatibility.
 

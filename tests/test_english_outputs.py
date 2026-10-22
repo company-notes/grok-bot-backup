@@ -1,6 +1,9 @@
 """Regression tests for English-language backup reports and source files."""
+import json
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from grok_bot_backup import conversations, memory_drop
 
@@ -22,6 +25,18 @@ class EnglishOutputTests(unittest.TestCase):
         output = memory_drop.render_markdown(data, "Example Memory", "Description")
         self.assertIn("Persistent (profile)", output)
         self.assertIn("Original memory content.", output)
+
+    def test_example_config_is_safe_to_copy_unchanged(self):
+        config = Path(__file__).resolve().parents[1] / "config.example.json"
+        data = json.loads(config.read_text(encoding="utf-8"))
+        self.assertEqual(data["expected_agents"], [])
+
+    def test_optional_roster_loads_without_example_agents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            cfg = Path(temp) / "config.json"
+            cfg.write_text('{"expected_agents": []}', encoding="utf-8")
+            with patch.dict("os.environ", {"GROK_BACKUP_CONFIG": str(cfg)}):
+                self.assertEqual(memory_drop._load_expected_agents(), [])
 
     def test_source_has_no_han_characters(self):
         root = Path(__file__).resolve().parents[1]

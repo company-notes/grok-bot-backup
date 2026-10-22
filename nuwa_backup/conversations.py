@@ -121,7 +121,7 @@ def speaker(role: str, info: dict) -> str:
 def render_month(info, month, rows, media_by_entry) -> str:
     users = sum(1 for r in rows if r[2] == "user")
     out = [
-        f"# {info['name']}｜對話紀錄 {month}",
+        f"# {info['name']}｜conversations {month}",
         "",
         f"- 時區：Asia/Taipei（UTC+8）",
         f"- 本月訊息：{len(rows)} 則（{USER_LABEL} {users}／助理 {len(rows) - users}）",
@@ -143,14 +143,14 @@ def render_month(info, month, rows, media_by_entry) -> str:
         att = media_by_entry.get(eid)
         if att:
             out.append("")
-            out.append(f"> 📎 附件：{att['file_name']}（見 `附件清單.md`）")
+            out.append(f"> 📎 附件：{att['file_name']}（見 `attachment-index.md`）")
         out.append("")
     return "\n".join(out) + "\n"
 
 
 def render_frozen_transcript(jsonl: pathlib.Path, info, result_limit: int = 2000) -> str:
     out = [
-        f"# {info['name']}｜本機凍結逐字稿（含工具呼叫）",
+        f"# {info['name']}｜frozen local transcript（含工具呼叫）",
         "",
         "- 來源：`agent-transcripts/<id>/<id>.jsonl`（2026-10-06 後不再更新，內容約到 2026-09-16）",
         "- 這份沒有時間戳；完整原始資料見同資料夾的 `agent-transcript.jsonl`",
@@ -238,16 +238,16 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
         lines += ["", "## box 上其他附件檔（對不到訊息）", ""]
         lines += [f"- [`{f}`](<{attach_link(f)}>)" if attach_link else f"- `{f}`" for f in orphan]
     lines += ["", "> 附件檔本身以 hash 檔名存放；連結指向本備份內的實際檔案位置。"]
-    write(conv_dir / "附件清單.md", "\n".join(lines))
+    write(conv_dir / "attachment-index.md", "\n".join(lines))
 
     # supplement: frozen local transcript with tool calls
     tj = AGENT_DATA / "agent-transcripts" / info["id"] / f"{info['id']}.jsonl"
     has_frozen = tj.exists()
     if has_frozen:
-        sup = conv_dir / "補充-本機凍結逐字稿-含工具呼叫"
+        sup = conv_dir / "frozen-transcript-with-tool-calls"
         sup.mkdir(exist_ok=True)
         shutil.copy2(tj, sup / "agent-transcript.jsonl")
-        write(sup / "逐字稿.md", render_frozen_transcript(tj, info))
+        write(sup / "transcript.md", render_frozen_transcript(tj, info))
 
     users = sum(1 for r in rows if r[2] == "user")
     stats = {
@@ -262,7 +262,7 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
     }
 
     # per-agent index
-    idx = [f"# {info['name']}｜對話紀錄索引", "",
+    idx = [f"# {info['name']}｜conversations索引", "",
            f"- 內部 ID：`{info['id']}`",
            f"- 訊息總數：**{len(rows)}** 則（{USER_LABEL} {users}／助理 {len(rows) - users}）",
            f"- 期間（台北時間）：{stats['first'] or '—'} ～ {stats['last'] or '—'}",
@@ -273,10 +273,10 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
     else:
         idx += ["_此助理在平台索引中沒有任何訊息。_"]
     idx += ["", "## 其他", "",
-            f"- [`附件清單.md`](附件清單.md)：{len(media)} 個附件（box 上找到 {found} 個）",
+            f"- [`attachment-index.md`](attachment-index.md)：{len(media)} 個附件（box 上找到 {found} 個）",
             "- `raw/messages.jsonl`、`raw/media.jsonl`：機器可讀原始資料"]
     if has_frozen:
-        idx.append("- `補充-本機凍結逐字稿-含工具呼叫/`：舊的本機逐字稿（含工具呼叫，無時間戳，約到 2026-09-16）")
+        idx.append("- `frozen-transcript-with-tool-calls/`：舊的本機逐字稿（含工具呼叫，no timestamp戳，約到 2026-09-16）")
     idx += ["", "## 說明", "",
             f"- 「{USER_LABEL}」是對話中使用者一方的訊息，通常是 owner，也可能是其他人或其他助理轉來的訊息。",
             "- 只含雙方看得到的訊息文字；工具呼叫與工具結果不在平台索引內。",
@@ -309,8 +309,8 @@ def write_top_index(path: pathlib.Path, stats: list[dict], links: dict[str, str]
     if dids:
         present = {s["agent_id"] for s in stats}
         lines += ["", "## 已刪除的助理", "",
-                  "以下助理已在平台刪除（`deleted-agents.json`）。若索引裡還有它們的訊息，會以「（已刪除助理）」資料夾匯出；目前狀態："]
-        lines += [f"- `{d}`：{'已匯出' if d in present else '索引中無資料（無可備份內容）'}" for d in dids]
+                  "以下助理已在平台刪除（`deleted-agents.json`）。若索引裡還有它們的訊息，會以「（Deleted assistant）」資料夾匯出；目前狀態："]
+        lines += [f"- `{d}`：{'exported' if d in present else '索引中無資料（無可備份內容）'}" for d in dids]
     lines += ["", "## 搜尋", "", "解壓後可直接用 `grep -rn \"關鍵字\" .` 搜尋所有對話。"]
     write(path, "\n".join(lines))
 

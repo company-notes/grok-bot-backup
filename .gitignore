@@ -1,32 +1,18 @@
-# 匯出產物與暫存
+# Generated archives, temporary files and virtual environments
 exports/
 *.tar.gz
 *.zip
 __pycache__/
-*.pyc
-.venv*/
+*.py[cod]
+.venv/
+.pytest_cache/
 
-# 不提交設定、密鑰、原始資料庫或任何備份內容
-*.key
-*.pem
-*.env
-.env*
-*secret*
-*token*
-*password*
-private/
-
-# site config (real agent IDs / names)
+# Local configuration, credentials, databases, or backup data must not be committed
 config.json
-
-# local platform databases
+.env
+.env.*
+*.pem
+*.key
 *.db
 *.db-wal
 *.db-shm
-*.sqlite
-*.sqlite3
-*.jsonl
-
-# Local copies and test-generated artifacts
-.pytest_cache/
-.coverage

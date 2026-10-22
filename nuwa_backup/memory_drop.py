@@ -1,7 +1,7 @@
 """Phase-1 platform memory: copy peer/self RecallMemory drops into a backup.
 
 Drops live in /workspace/exports/memory-drop/ (not produced by this module).
-Missing drops are recorded as 尚未匯出 and never fail the backup.
+Missing drops are recorded as not exported and never fail the backup.
 """
 from __future__ import annotations
 
@@ -127,7 +127,7 @@ def _agent_drop_files(agent_dir: pathlib.Path) -> list[pathlib.Path]:
 
 
 def _display_folder(agent_id: str, id_to_name: dict[str, str] | None) -> tuple[str, str]:
-    """Return (top folder '01-助理'|'02-群組', safe display folder name)."""
+    """Return (top folder '01-assistants'|'02-groups', safe display folder name)."""
     name = None
     if id_to_name and agent_id in id_to_name:
         name = id_to_name[agent_id]
@@ -138,10 +138,10 @@ def _display_folder(agent_id: str, id_to_name: dict[str, str] | None) -> tuple[s
                 break
     if not name:
         name = agent_id
-    kind = "01-助理"
+    kind = "01-assistants"
     g = AGENT_DATA / "agents" / agent_id / "group.json"
     if g.exists():
-        kind = "02-群組"
+        kind = "02-groups"
     return kind, safe_name(name)
 
 
@@ -189,24 +189,24 @@ def _index_markdown(status: dict) -> str:
         "# 平台記憶索引（phase 1）",
         "",
         "來源：`/workspace/exports/memory-drop/`（RecallMemory 投放）。",
-        "沒有投放的助理標「尚未匯出」，不中斷備份。",
+        "沒有投放的助理標「not exported」，不中斷備份。",
         "本機 `memory/` 檔（停在 2026-10-06）仍另外保留，與此處的平台記憶分開。",
         "",
         "## 共用記憶（scope=user）",
         "",
     ]
     if status["shared_user"] is None:
-        lines.append("- 尚未匯出")
+        lines.append("- not exported")
     else:
-        lines.append(f"- 已匯出：{status['shared_user']['count']} 則 → `00-共用/記憶/`")
+        lines.append(f"- exported：{status['shared_user']['count']} 則 → `00-shared/記憶/`")
     lines += ["", "## 各助理", ""]
     for a in status["agents"]:
         tag = "" if a["required"] else "（選用）"
         if not a["dropped"]:
-            lines.append(f"- {a['name']}{tag}：尚未匯出")
+            lines.append(f"- {a['name']}{tag}：not exported")
         else:
             bits = ", ".join(f"{k} {n} 則" for k, n in a["files"].items())
-            lines.append(f"- {a['name']}{tag}：已匯出（{bits}）")
+            lines.append(f"- {a['name']}{tag}：exported（{bits}）")
     if status["extra_ids"]:
         lines += ["", "## 名冊以外的投放", ""]
         for i in status["extra_ids"]:
@@ -216,20 +216,20 @@ def _index_markdown(status: dict) -> str:
 
 
 def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> dict:
-    """Write human-readable memory into dest/00-共用 and dest/01-助理|02-群組.
+    """Write human-readable memory into dest/00-shared and dest/01-assistants|02-groups.
 
     dest is the virtual-office root, or grok's platform-memory root (same layout).
     """
     root = drop_root()
     status = scan(root)
-    write(dest / "記憶索引.md", _index_markdown(status))
+    write(dest / "memory-index.md", _index_markdown(status))
 
     shared_src = root / "shared-user" / "memory-user.jsonl"
-    shared_dir = dest / "00-共用" / "記憶"
+    shared_dir = dest / "00-shared" / "記憶"
     if shared_src.is_file():
         rows = load_jsonl(shared_src)
         _copy_jsonl(shared_src, shared_dir / "memory-user.jsonl")
-        write(shared_dir / "共用記憶.md", render_markdown(
+        write(shared_dir / "shared-memory.md", render_markdown(
             rows,
             "共用記憶",
             "scope=user，所有助理共用。每則含日期、scope、source 與全文，可用 grep 搜尋。",
@@ -238,13 +238,13 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
 
 | 檔案 | 說明 |
 |---|---|
-| `共用記憶.md` | 人可讀，依 tier 分節（常駐 profile／自有 log／note） |
+| `shared-memory.md` | 人可讀，依 tier 分節（常駐 profile／自有 log／note） |
 | `memory-user.jsonl` | 原始投放，一行一則 |
 
-本機凍結檔仍在 `../全助理共用記憶/`（若 virtual-office 包）或 grok export 的 `shared/user-memory/`。
+本機凍結檔仍在 `../shared-agent-memory/`（若 virtual-office 包）或 grok export 的 `shared/user-memory/`。
 """)
     else:
-        write(shared_dir / "README.md", "# 共用記憶\n\n尚未匯出\n")
+        write(shared_dir / "README.md", "# 共用記憶\n\nnot exported\n")
 
     seen: set[str] = set()
     for a in status["agents"]:
@@ -259,7 +259,7 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
     kind, folder = _display_folder(agent_id, id_to_name)
     # prefer an existing folder under either tree (export already created it)
     existing = None
-    for top in ("01-助理", "02-群組"):
+    for top in ("01-assistants", "02-groups"):
         cand = dest / top / folder
         if cand.is_dir():
             existing = cand
@@ -270,16 +270,16 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
         # only note inside the pack index; don't invent empty per-agent files
         # unless that agent's folder already exists (so a reader opening 記憶/ sees the gap)
         if existing is not None:
-            note = mem / "平台記憶.md"
+            note = mem / "platform-memory.md"
             if not note.exists():
-                write(note, f"# 平台記憶\n\n尚未匯出\n\n（{label}，`{agent_id}`）\n")
+                write(note, f"# 平台記憶\n\nnot exported\n\n（{label}，`{agent_id}`）\n")
         return
     files = _agent_drop_files(drop_dir)
     rows: list[dict] = []
     for src in files:
         _copy_jsonl(src, mem / src.name)
         rows.extend(load_jsonl(src))
-    write(mem / "平台記憶.md", render_markdown(
+    write(mem / "platform-memory.md", render_markdown(
         rows,
         f"平台記憶 · {label}",
         "由該助理用 RecallMemory 投放。常駐＝tier profile；自有＝tier log／note。"

@@ -2,8 +2,8 @@
 """Export Grok Bot durable state as a human-readable Virtual Office pack.
 
 Not for restoring Grok internals. Organized for people / any virtual office:
-  00-共用/   01-助理/<顯示名>/   02-群組/<群組名>/   99-備份程式/
-Each assistant gets 對話紀錄/ with the full chat history (monthly Markdown)
+  00-shared/   01-assistants/<顯示名>/   02-groups/<群組名>/   99-backup-program/
+Each assistant gets conversations/ with the full chat history (monthly Markdown)
 from the platform-synced search index.
 """
 from __future__ import annotations
@@ -35,7 +35,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     name = profile.get("name") or agent_dir.name
     if name.strip() == "New Bot" and not (profile.get("description") or "").strip():
-        name = "New Bot（未設定）"
+        name = "New Bot（not configured）"
     folder = dest_agents / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +48,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
             settings = json.loads(sp.read_text(encoding="utf-8"))
         except Exception:
             settings = {}
-    write(folder / "人物設定.md", f"""# {name}
+    write(folder / "profile.md", f"""# {name}
 
 - 內部 ID：`{agent_dir.name}`
 - 職稱／Title：{title or "（無）"}
@@ -66,7 +66,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
 """)
 
     for av in agent_dir.glob("avatar.*"):
-        copy_if(av, folder / f"頭像{av.suffix.lower()}")
+        copy_if(av, folder / f"avatar{av.suffix.lower()}")
 
     # memory (local files; frozen since 2026-10-06 — see README)
     mem = agent_dir / "memory"
@@ -77,27 +77,27 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
         parts = ["# 記憶彙整\n", "> 注意：本機記憶檔停在 2026-10-06 15:10，之後的記憶尚未納入備份。\n"]
         for p in sorted(mem.rglob("*.md")):
             parts.append(f"## {p.relative_to(mem)}\n\n{p.read_text(encoding='utf-8', errors='replace')}\n")
-        write(folder / "記憶彙整.md", "\n".join(parts))
+        write(folder / "memory-summary.md", "\n".join(parts))
 
     auto = agent_dir / "automations"
     if auto.exists() and any(auto.iterdir()):
         for p in auto.rglob("*"):
             if p.is_file():
-                copy_if(p, folder / "例行工作" / p.relative_to(auto))
+                copy_if(p, folder / "routines" / p.relative_to(auto))
 
-    for src_name, dst_name in [("attachments", "附件與工作檔"), ("reference", "參考資料")]:
+    for src_name, dst_name in [("attachments", "attachments-and-work"), ("reference", "references")]:
         src = agent_dir / src_name
         if src.exists():
             for p in src.rglob("*"):
                 if p.is_file() and ".uploads" not in p.parts:
                     copy_if(p, folder / dst_name / p.relative_to(src))
 
-    # notes：全部依原資料夾結構匯出（2026-10-09 起沒有私密規則）
+    # notes：全部依原資料夾結構匯出（2026-10-09 起沒有private規則）
     notes = agent_dir / "notes"
     if notes.exists():
         for p in notes.rglob("*"):
             if p.is_file():
-                copy_if(p, folder / "筆記與側寫" / p.relative_to(notes))
+                copy_if(p, folder / "notes-and-profiles" / p.relative_to(notes))
 
     write(folder / "README.md", f"""# {name}
 
@@ -105,14 +105,14 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
 
 | 檔案／資料夾 | 說明 |
 |---|---|
-| `人物設定.md` | 名稱、角色、行為準則 |
-| `頭像.*` | 頭像圖 |
-| `對話紀錄/` | **完整對話**（每月一個 .md，台北時間；`README.md` 為索引） |
-| `記憶/`、`記憶彙整.md` | 長期記憶（本機檔，停在 2026-10-06） |
-| `筆記與側寫/` | 助理筆記（全部，依原資料夾結構） |
-| `附件與工作檔/` | 聊天附件與產出（hash 檔名；對照見 `對話紀錄/附件清單.md`） |
-| `參考資料/` | 角色參考文件 |
-| `例行工作/` | routines（若有） |
+| `profile.md` | 名稱、角色、行為準則 |
+| `avatar.*` | avatar圖 |
+| `conversations/` | **完整對話**（每月一個 .md，台北時間；`README.md` 為索引） |
+| `記憶/`、`memory-summary.md` | 長期記憶（本機檔，停在 2026-10-06） |
+| `notes-and-profiles/` | 助理筆記（全部，依原資料夾結構） |
+| `attachments-and-work/` | 聊天附件與產出（hash 檔名；對照見 `conversations/attachment-index.md`） |
+| `references/` | 角色參考文件 |
+| `routines/` | routines（若有） |
 """)
     id_to_name[agent_dir.name] = name
     return name
@@ -126,7 +126,7 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
     folder.mkdir(parents=True, exist_ok=True)
     members = group.get("memberIds") or []
     member_lines = [f"- {id_to_name.get(mid, mid)}（`{mid}`）" for mid in members]
-    write(folder / "群組設定.md", f"""# 群組：{name}
+    write(folder / "group-profile.md", f"""# 群組：{name}
 
 - 內部 ID：`{group_dir.name}`
 - 匯出時間（UTC）：{STAMP}
@@ -145,7 +145,7 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
             copy_if(p, folder / "記憶" / p.relative_to(mem))
     write(folder / "README.md", f"""# 群組：{name}
 
-人可讀群組包。成員名單見 `群組設定.md`；群內對話見 `對話紀錄/`（若有）。
+人可讀群組包。成員名單見 `group-profile.md`；群內對話見 `conversations/`（若有）。
 """)
 
 
@@ -159,27 +159,27 @@ def export_shared(dest_shared: pathlib.Path) -> None:
                 rel = p.relative_to(company)
                 if any(part.startswith(".") for part in rel.parts):
                     continue
-                copy_if(p, dest_shared / "公司" / rel)
+                copy_if(p, dest_shared / "company" / rel)
     proj = AGENT_DATA / "projects" / "nuwa-company"
     if proj.exists():
-        write(dest_shared / "公司" / "專案說明.md",
+        write(dest_shared / "company" / "project-overview.md",
               (proj / "project.md").read_text(encoding="utf-8") if (proj / "project.md").exists() else "")
         mem_root = proj / "memory" / "by-agent"
         if mem_root.exists():
             for shard in mem_root.iterdir():
                 if shard.is_dir():
                     for p in shard.rglob("*.md"):
-                        copy_if(p, dest_shared / "公司" / "專案記憶" / shard.name / p.relative_to(shard))
+                        copy_if(p, dest_shared / "company" / "project-memory" / shard.name / p.relative_to(shard))
     um = AGENT_DATA / "user-memory"
     if um.exists():
         for p in um.rglob("*.md"):
-            copy_if(p, dest_shared / "全助理共用記憶" / p.relative_to(um))
+            copy_if(p, dest_shared / "shared-agent-memory" / p.relative_to(um))
     wf = AGENT_DATA / "workflows"
     if wf.exists():
         for p in wf.rglob("*"):
             if p.is_file():
-                copy_if(p, dest_shared / "技能與工作流" / p.relative_to(wf))
-    wp = dest_shared / "工作區產出"
+                copy_if(p, dest_shared / "skills-and-workflows" / p.relative_to(wf))
+    wp = dest_shared / "workspace-outputs"
     for item in WORKSPACE.iterdir():
         if item.name in {"exports", "scripts", "uploads", "company"}:
             continue
@@ -195,10 +195,10 @@ def export_shared(dest_shared: pathlib.Path) -> None:
 
 | 資料夾 | 說明 |
 |---|---|
-| `公司/` | 公司理念、職責、專案記憶、原始簡報 |
-| `全助理共用記憶/` | 所有助理都會帶的短事實（本機檔，停在 2026-10-06） |
-| `技能與工作流/` | 可重用技能 |
-| `工作區產出/` | 共用電腦上的工作成果（記帳等） |
+| `company/` | company理念、職責、project-memory、原始簡報 |
+| `shared-agent-memory/` | 所有助理都會帶的短事實（本機檔，停在 2026-10-06） |
+| `skills-and-workflows/` | 可重用技能 |
+| `workspace-outputs/` | 共用電腦上的工作成果（記帳等） |
 """)
 
 
@@ -216,7 +216,7 @@ def main() -> None:
 
     id_to_name: dict[str, str] = {}
     agents_root = AGENT_DATA / "agents"
-    dest_agents, dest_groups, dest_shared = DEST / "01-助理", DEST / "02-群組", DEST / "00-共用"
+    dest_agents, dest_groups, dest_shared = DEST / "01-assistants", DEST / "02-groups", DEST / "00-shared"
 
     for d in sorted(agents_root.iterdir()):
         if d.is_dir() and (d / "profile.json").exists() and not (d / "group.json").exists():
@@ -230,23 +230,23 @@ def main() -> None:
     # ---- full conversations from the platform-synced search index
     def layout(info):
         base = dest_groups if info["kind"] == "group" else dest_agents
-        return base / info["folder"] / "對話紀錄"
+        return base / info["folder"] / "conversations"
 
     def attach_link_for(info, conv_dir):
         if info.get("dir") is None or info["kind"] == "group":
             return None
-        return lambda f: f"../附件與工作檔/{f}"
+        return lambda f: f"../attachments-and-work/{f}"
 
     conv_stats = conversations.export_all(
-        layout, attach_link_for, DEST / "對話索引.md",
-        lambda info, d: str(d.relative_to(DEST)), DEST / "99-備份程式" / "對話統計.json",
+        layout, attach_link_for, DEST / "conversation-index.md",
+        lambda info, d: str(d.relative_to(DEST)), DEST / "99-backup-program" / "conversation-stats.json",
         rel_root=DEST,
     )
     # ---- copy of this program (repo at HEAD + commit hash)
-    prog = snapshot_program(DEST / "99-備份程式")
+    prog = snapshot_program(DEST / "99-backup-program")
 
     roster = ["# 花名冊"] + [f"- {n}（`{i}`）" for i, n in sorted(id_to_name.items(), key=lambda x: x[1])]
-    write(DEST / "花名冊.md", "\n".join(roster))
+    write(DEST / "roster.md", "\n".join(roster))
 
     total_msgs = sum(s["messages"] for s in conv_stats)
     write(DEST / "README.md", f"""# Virtual Office 可讀匯出包
@@ -254,27 +254,27 @@ def main() -> None:
 - 匯出時間（UTC）：`{STAMP}`
 - 目的：**給人看、可搬到任何 virtual office**，不是 Grok Bot 內部還原檔
 - 人類可讀整理包並非原始資料的逐位元副本；完整原始資料請搭配 `grok-bot-export` 檢查
-- 全量備份：所有筆記、附件、對話都包含在內（2026-10-09 起沒有私密規則）
+- 全量備份：所有筆記、附件、對話都包含在內（2026-10-09 起沒有private規則）
 - 對話：{len([s for s in conv_stats if s['messages']])} 位助理／群組、共 {total_msgs} 則（來源：平台同步的 search-index.db，含 2026-10-06 之後）
-- 備份程式版本：commit `{prog.get('commit')}`（完整原始碼在 `99-備份程式/source/`）
+- 備份程式版本：commit `{prog.get('commit')}`（完整原始碼在 `99-backup-program/source/`）
 
 ## 結構
 
-- `對話索引.md` — **所有助理的對話總覽**（則數、期間、連結）
-- `00-共用/` — 公司知識、共用記憶、技能、工作產出
-- `01-助理/<名>/` — 人物設定、頭像、記憶、**對話紀錄/（每月 .md）**、筆記、附件
-- `02-群組/<名>/` — 群組設定與群內對話
-- `99-備份程式/` — 產生本包的程式原始碼與 commit hash、對話統計
-- `花名冊.md`
+- `conversation-index.md` — **所有助理的對話總覽**（則數、期間、連結）
+- `00-shared/` — company知識、共用記憶、技能、工作產出
+- `01-assistants/<名>/` — 人物設定、avatar、記憶、**conversations/（每月 .md）**、筆記、附件
+- `02-groups/<名>/` — 群組設定與群內對話
+- `99-backup-program/` — 產生本包的程式原始碼與 commit hash、對話統計
+- `roster.md`
 
 ## 搜尋
 
-解壓後：`grep -rn "關鍵字" 01-助理/*/對話紀錄/`
+解壓後：`grep -rn "關鍵字" 01-assistants/*/conversations/`
 
 ## 已知限制
 
-- 記憶 phase 1：若 `/workspace/exports/memory-drop/` 有投放，會寫進 `00-共用/記憶/` 與各助理 `記憶/平台記憶.md`（見 `記憶索引.md`）。沒投放的標「尚未匯出」。本機記憶檔仍停在 2026-10-06 15:10。
-- 平台索引只有雙方看得到的訊息文字；工具呼叫／結果只在「補充-本機凍結逐字稿」（約到 2026-09-16）。
+- 記憶 phase 1：若 `/workspace/exports/memory-drop/` 有投放，會寫進 `00-shared/記憶/` 與各助理 `記憶/platform-memory.md`（見 `memory-index.md`）。沒投放的標「not exported」。本機記憶檔仍停在 2026-10-06 15:10。
+- 平台索引只有雙方看得到的訊息文字；工具呼叫／結果只在「補充-frozen local transcript」（約到 2026-09-16）。
 - 群組對話中，助理訊息無法區分是哪位助理說的。
 """)
 
@@ -295,7 +295,7 @@ def main() -> None:
     su = mem_status.get("shared_user")
     print("MEMORY_SHARED=" + ("MISSING" if su is None else str(su["count"])))
     for a in mem_status["agents"]:
-        flag = "yes" if a["dropped"] else "尚未匯出"
+        flag = "yes" if a["dropped"] else "not exported"
         print(f"MEMORY_AGENT\t{flag}\t{a['id']}\t{a['name']}")
     for name in sorted(id_to_name.values()):
         print(f"AGENT\t{name}")

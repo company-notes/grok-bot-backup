@@ -19,7 +19,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="${OUT_ROOT}/grok-bot-export-${STAMP}"
 ARCHIVE="${OUT_ROOT}/grok-bot-export-${STAMP}.tar.gz"
 
-# 2026-10-09: 私密 rules removed (owner decision) — every backup is a full backup.
+# 2026-10-09: private rules removed (owner decision) — every backup is a full backup.
 # --include-private / --passphrase are still accepted for compatibility but ignored.
 DEPRECATED_FLAG=0
 
@@ -32,7 +32,7 @@ while [[ $# -gt 0 ]]; do
     --passphrase=*) DEPRECATED_FLAG=1; shift ;;
     -h|--help)
       echo "Usage: $0"
-      echo "  Full backup of everything (no 私密 rules since 2026-10-09)."
+      echo "  Full backup of everything (no private rules since 2026-10-09)."
       echo "  Env: INCLUDE_SUBAGENTS=1 also copies sand-subagent transcripts."
       echo "       INCLUDE_BULKY_DIRS=1 copies .venv*, .cache, node_modules, __pycache__, .git."
       exit 0
@@ -90,7 +90,7 @@ for agent_dir in "${AGENT_DIRS[@]}"; do
     [[ -d "${agent_dir}${d}" ]] && cp -a "${agent_dir}${d}" "$out/"
   done
 
-  # notes: copied in full (no 私密 rules since 2026-10-09)
+  # notes: copied in full (no private rules since 2026-10-09)
   [[ -d "${agent_dir}notes" ]] && cp -a "${agent_dir}notes" "$out/"
 
   # optional: include main sqlite stores (conversation/blob state) without WAL/SHM
@@ -149,7 +149,7 @@ python3 -m nuwa_backup.workspace "$WORKSPACE" "$DEST/workspace" "$OUT_ROOT" "$DE
 # --- Full conversations of every assistant (platform-synced search index) ---
 python3 -m nuwa_backup.conversations --dest "$DEST/conversations" >/dev/null
 
-# --- Platform memory drops (phase 1). Missing agents are 尚未匯出, never fatal. ---
+# --- Platform memory drops (phase 1). Missing agents are not exported, never fatal. ---
 python3 -m nuwa_backup.memory_drop --into-grok "$DEST" >/dev/null
 
 # --- Copy of this backup program: repo source at HEAD + commit hash ---
@@ -216,9 +216,9 @@ manifest = {
         "shared/user-memory, shared/projects (if present)",
         "shared/agent-transcripts (excluding sand-subagent-* unless INCLUDE_SUBAGENTS=1)",
         "workspace/ (excludes only backup output and, by default, bulky directories; see meta/workspace-copy.json)",
-        "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, 附件清單.md, frozen supplement)",
+        "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, attachment-index.md, frozen supplement)",
         "meta/backup-program/ (repo source at HEAD + COMMIT)",
-        "platform-memory/ human-readable RecallMemory drops (00-共用/記憶, 01-助理/<name>/記憶) when /workspace/exports/memory-drop exists",
+        "platform-memory/ human-readable RecallMemory drops (00-shared/記憶, 01-assistants/<name>/記憶) when /workspace/exports/memory-drop exists",
         "agents/<id>/platform-memory/ and shared/platform-memory/ raw jsonl from those drops",
     ],
     "excluded": [
@@ -235,9 +235,9 @@ manifest = {
         "All assistants on one account share this computer filesystem.",
         "Per-agent identity/memory lives under agents/<id>/; skills under workflows/; scratch deliverables under /workspace.",
         "This archive is a portable backup for leaving Grok Bot lock-in; restore is manual copy-back / re-import.",
-        "Full backup: no 私密 rules since 2026-10-09; all notes, attachments and conversations are included.",
+        "Full backup: no private rules since 2026-10-09; all notes, attachments and conversations are included.",
         "Local memory/ files are still frozen at 2026-10-06 15:10.",
-        "Platform memory phase 1: copied from /workspace/exports/memory-drop when present (see platform-memory/記憶索引.md). Agents without a drop are marked 尚未匯出.",
+        "Platform memory phase 1: copied from /workspace/exports/memory-drop when present (see platform-memory/memory-index.md). Agents without a drop are marked not exported.",
     ],
     "file_count": len(files),
     "total_bytes": total_bytes,
@@ -258,7 +258,7 @@ Exported from shared box computer.
 - `conversations/` — **full chat history of every assistant** (one folder per display name, monthly Markdown, Asia/Taipei); start at `conversations/README.md`
 - `shared/agent-transcripts/` — frozen local transcript jsonl with tool calls (until ~2026-09-16)
 - `shared/user-memory/`, `shared/projects/` — only if those folders exist (local files, frozen 2026-10-06)
-- `platform-memory/` — human-readable platform memory from RecallMemory drops (phase 1); index at `platform-memory/記憶索引.md`
+- `platform-memory/` — human-readable platform memory from RecallMemory drops (phase 1); index at `platform-memory/memory-index.md`
 - `agents/<id>/platform-memory/` — raw jsonl of that assistant's drop, if any
 - `workspace/` — shared work products / deliverables from `/workspace`
 - `meta/MANIFEST.json` — file inventory
@@ -275,7 +275,7 @@ INCLUDE_SUBAGENTS=1 INCLUDE_BULKY_DIRS=1 bin/export-grok-bot-backup.sh
 ```
 
 Conversation messages: {conv_total} (snapshot {conv["cutoff_taipei"]} Asia/Taipei)
-Platform memory (phase 1): see `platform-memory/記憶索引.md`. Local `memory/` files remain frozen at 2026-10-06.
+Platform memory (phase 1): see `platform-memory/memory-index.md`. Local `memory/` files remain frozen at 2026-10-06.
 
 Agents found: {agent_count}
 Total files: {len(files)}

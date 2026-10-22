@@ -1,5 +1,8 @@
 # Changelog
 
-## 1.0.0 (2026-10-22)
-- 首次公開釋出：全量備份（virtual-office 人可讀包與原始 grok-bot-export）、對話匯出、平台記憶投放（phase 1）、匯出驗證。
-- 站台特定值（助理名冊）改由 `config.json` 提供，路徑由環境變數設定。
+## Initial public release — 2026-10-22
+
+- Export complete, accessible Grok Bot data as a raw archive and a human-readable Virtual Office package.
+- Export platform-synced conversation history, available RecallMemory drops (phase 1), and backup verification reports.
+- Configure site-specific assistant names/IDs in `config.json`, with paths controlled by environment variables.
+- Add `INCLUDE_BULKY_DIRS` to optionally include large workspace dependencies and caches.

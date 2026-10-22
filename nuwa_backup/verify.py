@@ -35,7 +35,7 @@ def main() -> None:
         ok &= bool(cond)
         print(("PASS " if cond else "FAIL ") + msg)
 
-    stats_file = next((p for p in [root / "99-備份程式" / "對話統計.json",
+    stats_file = next((p for p in [root / "99-backup-program" / "conversation-stats.json",
                                    root / "conversations" / "conversation-stats.json"] if p.exists()), None)
     check(stats_file is not None, "conversation stats file present")
     if stats_file is None:
@@ -68,7 +68,7 @@ def main() -> None:
         check(on_date > 0, f"messages on {a.date} present: {on_date}")
 
     # program copy
-    prog = next((p for p in [root / "99-備份程式", root / "meta" / "backup-program"] if (p / "COMMIT").exists()), None)
+    prog = next((p for p in [root / "99-backup-program", root / "meta" / "backup-program"] if (p / "COMMIT").exists()), None)
     commit = (prog / "COMMIT").read_text().strip() if prog else ""
     check(bool(re.fullmatch(r"[0-9a-f]{40}", commit)), f"program COMMIT {commit[:12]}")
     check(prog is not None and (prog / "source" / "nuwa_backup" / "common.py").exists(), "program source present")
@@ -87,16 +87,16 @@ def main() -> None:
     check(not missing, f"all notes files included ({len(src) - len(missing)}/{len(src)})")
     for p in missing[:20]:
         print(f"     missing: {p.relative_to(AGENT_DATA)}")
-    # platform memory phase 1: if a drop exists, the export must reflect it (or say 尚未匯出)
+    # platform memory phase 1: if a drop exists, the export must reflect it (or say not exported)
     mem_index = next((p for p in [
-        root / "記憶索引.md",
-        root / "platform-memory" / "記憶索引.md",
+        root / "memory-index.md",
+        root / "platform-memory" / "memory-index.md",
     ] if p.exists()), None)
     if mem_index is None:
-        check(False, "記憶索引.md present (phase 1)")
+        check(False, "memory-index.md present (phase 1)")
     else:
         idx = mem_index.read_text(encoding="utf-8")
-        check("尚未匯出" in idx or "已匯出" in idx, "記憶索引 mentions 已匯出 or 尚未匯出")
+        check("not exported" in idx or "exported" in idx, "記憶索引 mentions exported or not exported")
         # shared jsonl, if present in the drop, must be copied
         import hashlib as _hashlib
         drop = pathlib.Path(__import__("os").environ.get("MEMORY_DROP", "/workspace/exports/memory-drop"))

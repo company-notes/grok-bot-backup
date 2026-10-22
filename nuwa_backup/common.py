@@ -1,6 +1,6 @@
 """Shared paths and helpers.
 
-2026-10-09: Owner decided to remove the 私密 rules; every backup is a full backup.
+2026-10-09: Owner decided to remove the private rules; every backup is a full backup.
 The old --include-private / --passphrase flags are accepted and ignored.
 """
 from __future__ import annotations
@@ -37,7 +37,7 @@ def taipei(ts_ms: int | None) -> datetime | None:
 def fmt_taipei(ts_ms: int | None, with_seconds: bool = True) -> str:
     dt = taipei(ts_ms)
     if dt is None:
-        return "（無時間）"
+        return "（no timestamp）"
     return dt.strftime("%Y-%m-%d %H:%M:%S" if with_seconds else "%Y-%m-%d %H:%M")
 
 
@@ -59,10 +59,10 @@ def warn_deprecated_private_args(args) -> None:
 
 # --------------------------------------------------------------------------- fs helpers
 def safe_name(name: str) -> str:
-    name = (name or "未命名").strip()
+    name = (name or "Unnamed").strip()
     name = re.sub(r"[\\/:*?\"<>|\n\r\t]+", " ", name)
     name = re.sub(r"\s+", " ", name).strip(" .")
-    return name[:80] or "未命名"
+    return name[:80] or "Unnamed"
 
 
 def write(path: pathlib.Path, text: str) -> None:
@@ -121,7 +121,7 @@ def agent_registry() -> dict[str, dict]:
         is_group = (d / "group.json").exists()
         name = prof.get("name") or d.name
         if not is_group and name.strip() == "New Bot" and not (prof.get("description") or "").strip():
-            name = "New Bot（未設定）"
+            name = "New Bot（not configured）"
         short = name.split(" | ")[0].strip() or name
         reg[d.name] = {
             "id": d.name,
@@ -136,7 +136,7 @@ def agent_registry() -> dict[str, dict]:
 
 def unknown_agent_entry(agent_id: str) -> dict:
     deleted = agent_id in deleted_agent_ids()
-    label = f"（已刪除助理）{agent_id[:8]}" if deleted else f"（未知助理）{agent_id[:8]}"
+    label = f"（Deleted assistant）{agent_id[:8]}" if deleted else f"（Unknown assistant）{agent_id[:8]}"
     return {
         "id": agent_id,
         "name": label,

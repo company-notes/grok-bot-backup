@@ -19,7 +19,7 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="${OUT_ROOT}/grok-bot-export-${STAMP}"
 ARCHIVE="${OUT_ROOT}/grok-bot-export-${STAMP}.tar.gz"
 
-# 2026-10-09: private rules removed (owner decision) — every backup is a full backup.
+# No private-content filtering: all accessible source files are eligible.
 # --include-private / --passphrase are still accepted for compatibility but ignored.
 DEPRECATED_FLAG=0
 
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --passphrase=*) DEPRECATED_FLAG=1; shift ;;
     -h|--help)
       echo "Usage: $0"
-      echo "  Full backup of everything (no private rules since 2026-10-09)."
+      echo "  Full backup of everything (no private-content filtering)."
       echo "  Env: INCLUDE_SUBAGENTS=1 also copies sand-subagent transcripts."
       echo "       INCLUDE_BULKY_DIRS=1 copies .venv*, .cache, node_modules, __pycache__, .git."
       echo "       BACKUP_EXCLUDE_PATHS='secrets:other-dir' excludes paths inside WORKSPACE."
@@ -48,7 +48,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$DEPRECATED_FLAG" -eq 1 ]]; then
-  echo "NOTICE: --include-private/--passphrase are deprecated and ignored; every backup now includes everything (2026-10-09)." >&2
+  echo "NOTICE: --include-private/--passphrase are deprecated and ignored; the backup includes all accessible content." >&2
 fi
 
 [[ -d "$AGENT_DATA" ]] || die "AGENT_DATA not found: $AGENT_DATA"
@@ -225,7 +225,7 @@ manifest = {
         "All assistants on one account share this computer filesystem.",
         "Per-agent identity/memory lives under agents/<id>/; skills under workflows/; scratch deliverables under /workspace.",
         "This archive is a portable backup for leaving Grok Bot lock-in; restoration is outside this tool.",
-        "Full backup: no private rules since 2026-10-09; all notes, attachments and conversations are included.",
+        "Backup includes accessible notes, attachments and conversations without filtering private content.",
         "Local memory files can be stale; verify platform-memory drop freshness.",
         "Platform memory: copied from MEMORY_DROP when provided. Missing drops are marked not exported.",
     ],

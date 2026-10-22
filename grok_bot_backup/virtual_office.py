@@ -68,7 +68,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
     for av in agent_dir.glob("avatar.*"):
         copy_if(av, folder / f"avatar{av.suffix.lower()}")
 
-    # memory (local files; frozen since 2026-10-06 — see README)
+    # memory (local files may be outdated; check source timestamps)
     mem = agent_dir / "memory"
     if mem.exists():
         for p in mem.rglob("*"):
@@ -92,7 +92,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
                 if p.is_file():
                     copy_if(p, folder / dst_name / p.relative_to(src))
 
-    # notes: copy all files in their source structure (no private-content filtering since 2026-10-09)
+    # notes: copy all files without private-content filtering
     notes = agent_dir / "notes"
     if notes.exists():
         for p in notes.rglob("*"):
@@ -108,7 +108,7 @@ This is a portable virtual employee/role package that a person can read or impor
 | `profile.md` | Name, role, and behavior guidelines |
 | `avatar.*` | Avatar image |
 | `conversations/` | **Full conversations** (one Markdown file per month, Taipei time; see README.md) |
-| `memory/`, `memory-summary.md` | Long-term memory (local files frozen since 2026-10-06) |
+| `memory/`, `memory-summary.md` | Long-term memory (local files may be outdated) |
 | `notes-and-profiles/` | All assistant notes, preserving their directory structure |
 | `attachments-and-work/` | Chat attachments and outputs (hash-based filenames; see `conversations/attachment-index.md`) |
 | `references/` | Role reference documents |
@@ -238,8 +238,8 @@ def main() -> None:
 - Export time (UTC): `{STAMP}`
 - Purpose: readable by people and portable to another virtual office; not an internal Grok Bot restore image
 - The readable package is not byte-for-byte equivalent to the original data; inspect grok-bot-export for raw state.
-- Full backup: all available notes, attachments and conversations are included (no private-content filtering since 2026-10-09).
-- Conversations: {len([s for s in conv_stats if s['messages']])} assistants/groups, totaling {total_msgs} messages (platform-synced search-index.db, including messages after 2026-10-06)
+- Full backup: all available notes, attachments and conversations are included (no private-content filtering).
+- Conversations: {len([s for s in conv_stats if s['messages']])} assistants/groups, totaling {total_msgs} messages (platform-synced search-index.db; check source coverage)
 - Backup program version: commit `{prog.get('commit')}` (full source in 99-backup-program/source/)
 
 ## Contents
@@ -257,8 +257,8 @@ After extraction: `grep -rn "keyword" 01-assistants/*/conversations/`
 
 ## Known limitations
 
-- Memory phase 1: available drops from /workspace/exports/memory-drop/ are written to 00-shared/memory/ and the assistant memory/platform-memory.md files (see memory-index.md). Missing drops are labeled 'not exported'. Local memory files are frozen as of 2026-10-06 15:10.
-- The platform index contains only visible chat text; tool calls and results are in the frozen local transcript supplement (until around 2026-09-16).
+- Platform memory drops from {os.environ.get('MEMORY_DROP', str(WORKSPACE / 'exports' / 'memory-drop'))} are copied when available (see memory-index.md). Missing drops are labeled 'not exported'. Local memory files may be stale.
+- The platform index contains only visible chat text; tool calls and results are in the frozen local transcript supplement (check source coverage).
 - For group conversations, the index does not identify which assistant spoke.
 """)
 

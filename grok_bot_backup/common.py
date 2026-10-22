@@ -1,6 +1,6 @@
 """Shared paths and helpers.
 
-2026-10-09: Owner decided to remove the private rules; every backup is a full backup.
+No private-content filtering: all accessible source files are eligible for backup.
 The old --include-private / --passphrase flags are accepted and ignored.
 """
 from __future__ import annotations
@@ -43,7 +43,7 @@ def fmt_taipei(ts_ms: int | None, with_seconds: bool = True) -> str:
 
 # --------------------------------------------------------------------------- deprecated flags
 DEPRECATION_NOTICE = ("NOTICE: --include-private/--passphrase are deprecated and ignored; "
-                      "every backup now includes everything (2026-10-09).")
+                      "private-content filtering is disabled.")
 
 
 def add_deprecated_private_args(parser: argparse.ArgumentParser) -> None:

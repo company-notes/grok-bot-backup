@@ -1,13 +1,12 @@
 """Full chat history for every assistant, from the platform-synced search index.
 
 Source: /home/box/agent-data/search-index.db (tables messages, media, agents).
-Since the 2026-10-06 host move the platform no longer writes transcripts back
-to agents/<id>/store.db or agent-transcripts/, but it keeps this index current,
-so it is the only on-box source of conversations after ~2026-09-16.
+On some hosts, local transcripts may no longer receive updates while this
+platform index is synchronized. Inspect source timestamps on each box.
 
 It contains the user-visible text of user and assistant messages only
 (no tool calls / tool results). The frozen local transcripts (with tool calls,
-up to ~2026-09-16) are rendered as a supplement.
+when available) are rendered as a supplement.
 """
 from __future__ import annotations
 
@@ -152,7 +151,7 @@ def render_frozen_transcript(jsonl: pathlib.Path, info, result_limit: int = 2000
     out = [
         f"# {info['name']} — Frozen local transcript (including tool calls)",
         "",
-        "- Source: agent-transcripts/<id>/<id>.jsonl (not updated after 2026-10-06; coverage ends around 2026-09-16)",
+        "- Source: agent-transcripts/<id>/<id>.jsonl (local history; check timestamps and coverage)",
         "- This rendering has no timestamps; see the original data in `agent-transcript.jsonl`",
         f"- Tool results longer than {result_limit} characters are truncated; raw JSONL is unchanged",
         "",
@@ -276,7 +275,7 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
             f"- [attachment-index.md](attachment-index.md): {len(media)} attachments ({found} found on the box)",
             "- raw/messages.jsonl and raw/media.jsonl: machine-readable raw data"]
     if has_frozen:
-        idx.append("- frozen-transcript-with-tool-calls/: frozen local transcript (including tool calls; no timestamps, until about 2026-09-16)")
+        idx.append("- frozen-transcript-with-tool-calls/: frozen local transcript (including tool calls; no timestamps; check original file coverage)")
     idx += ["", "## Notes", "",
             f"- {USER_LABEL} labels the user side of a conversation; it may also include messages relayed from other people or assistants.",
             "- Only user-visible message text is indexed; tool calls and tool results are not included.",
@@ -290,7 +289,7 @@ def write_top_index(path: pathlib.Path, stats: list[dict], links: dict[str, str]
     total = sum(s["messages"] for s in stats)
     lines = ["# All assistant conversations", "",
              f"- Snapshot time (Taipei): {fmt_taipei(cutoff_ms)}",
-             "- Source: search-index.db (platform-synced, including messages after 2026-10-06)",
+             "- Source: search-index.db (platform-synced; coverage depends on platform version)",
              f"- Total messages: **{total}** messages", "",
              "| Assistant / group | Type | Messages | Range (Taipei) | Attachments | Folder |", "|---|---|---|---|---|---|"]
     kind_label = {"agent": "Assistant", "group": "Group", "deleted": "Deleted", "unknown": "Unknown"}

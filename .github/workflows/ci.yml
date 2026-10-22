@@ -1,0 +1,24 @@
+name: Validate backup sources
+
+on:
+  push:
+    branches:
+      - main
+      - chore/english-only
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify Python syntax
+        run: python -m compileall -q nuwa_backup tests
+      - name: Verify shell syntax
+        run: bash -n bin/*.sh
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -v

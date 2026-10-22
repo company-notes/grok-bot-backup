@@ -182,8 +182,12 @@ def export_shared(dest_shared: pathlib.Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export Virtual Office readable pack")
     add_deprecated_private_args(parser)
+    parser.add_argument("--exclude", action="append", default=[], help="Workspace path to omit")
     args = parser.parse_args()
     warn_deprecated_private_args(args)
+    if args.exclude:
+        old = os.environ.get("BACKUP_EXCLUDE_PATHS", "")
+        os.environ["BACKUP_EXCLUDE_PATHS"] = os.pathsep.join(x for x in [old, *args.exclude] if x)
 
     os.umask(0o077)
     print("WARNING: Unencrypted full-data backup; secrets, credentials, and private files may be included.", flush=True)

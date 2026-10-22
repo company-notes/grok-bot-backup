@@ -1,6 +1,6 @@
 """Verify a finished export: conversations vs search index, program copy, notes completeness.
 
-usage: python3 -m nuwa_backup.verify <export-dir> [--archive X.tar.gz] [--date YYYY-MM-DD]
+usage: python3 -m grok_bot_backup.verify <export-dir> [--archive X.tar.gz] [--date YYYY-MM-DD]
 Prints a short report; exit code 1 if any check fails. Never prints message bodies.
 """
 from __future__ import annotations
@@ -86,7 +86,7 @@ def main() -> None:
     prog = next((p for p in [root / "99-backup-program", root / "meta" / "backup-program"] if (p / "COMMIT").exists()), None)
     commit = (prog / "COMMIT").read_text().strip() if prog else ""
     check(bool(re.fullmatch(r"[0-9a-f]{40}", commit)), f"program COMMIT {commit[:12]}")
-    check(prog is not None and (prog / "source" / "nuwa_backup" / "common.py").exists(), "program source present")
+    check(prog is not None and (prog / "source" / "grok_bot_backup" / "common.py").exists(), "program source present")
 
     if a.archive:
         with tarfile.open(a.archive) as tar:

@@ -95,7 +95,7 @@ def copy_workspace(src: Path, dst: Path, out_root: Path) -> dict:
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 5:
-        raise SystemExit("usage: python -m nuwa_backup.workspace <src> <dst> <out_root> <report.json>")
+        raise SystemExit("usage: python -m grok_bot_backup.workspace <src> <dst> <out_root> <report.json>")
     result = copy_workspace(Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3]))
     report = Path(sys.argv[4])
     report.parent.mkdir(parents=True, exist_ok=True)

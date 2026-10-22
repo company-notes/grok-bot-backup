@@ -72,7 +72,7 @@ def snapshot_program(dest: pathlib.Path) -> dict:
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        raise SystemExit("usage: python3 -m nuwa_backup.program <dest-dir>")
+        raise SystemExit("usage: python3 -m grok_bot_backup.program <dest-dir>")
     i = snapshot_program(pathlib.Path(sys.argv[1]))
     print(f"PROGRAM_COMMIT={i.get('commit')}")
     print(f"PROGRAM_DIRTY={i.get('dirty')}")

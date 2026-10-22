@@ -51,12 +51,12 @@ def snapshot_program(dest: pathlib.Path) -> dict:
         dest / "VERSION.md",
         f"""# Backup program used for this export
 
-- Repo：`{REPO_ROOT}`
-- Commit：`{info.get('commit')}`
-- HEAD：{info.get('head', '')}
+- Repository: `{REPO_ROOT}`
+- Commit: `{info.get('commit')}`
+- HEAD: {info.get('head', '')}
 - Uncommitted changes: {info.get('dirty')}
 - Generated at (UTC): {datetime.now(timezone.utc).isoformat()}
-- Python：{sys.version.split()[0]}
+- Python: {sys.version.split()[0]}
 {dirty_note}
 `source/` contains the complete source code of this commit (`git archive HEAD`); use it to rerun or audit the export.
 

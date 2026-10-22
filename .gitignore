@@ -1,0 +1,32 @@
+# 匯出產物與暫存
+exports/
+*.tar.gz
+*.zip
+__pycache__/
+*.pyc
+.venv*/
+
+# 不提交設定、密鑰、原始資料庫或任何備份內容
+*.key
+*.pem
+*.env
+.env*
+*secret*
+*token*
+*password*
+private/
+
+# site config (real agent IDs / names)
+config.json
+
+# local platform databases
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.jsonl
+
+# Local copies and test-generated artifacts
+.pytest_cache/
+.coverage

@@ -27,6 +27,10 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --exclude)
+      [[ $# -ge 2 ]] || die "--exclude requires a workspace path"
+      export BACKUP_EXCLUDE_PATHS="${BACKUP_EXCLUDE_PATHS:+${BACKUP_EXCLUDE_PATHS}:}$2"
+      shift 2 ;;
     --include-private) DEPRECATED_FLAG=1; shift ;;
     --passphrase) DEPRECATED_FLAG=1; shift; if [[ $# -gt 0 ]]; then shift; fi ;;
     --passphrase=*) DEPRECATED_FLAG=1; shift ;;
@@ -35,6 +39,8 @@ while [[ $# -gt 0 ]]; do
       echo "  Full backup of everything (no private rules since 2026-10-09)."
       echo "  Env: INCLUDE_SUBAGENTS=1 also copies sand-subagent transcripts."
       echo "       INCLUDE_BULKY_DIRS=1 copies .venv*, .cache, node_modules, __pycache__, .git."
+      echo "       BACKUP_EXCLUDE_PATHS='secrets:other-dir' excludes paths inside WORKSPACE."
+      echo "  --exclude PATH can be repeated; output directories are always excluded."
       exit 0
       ;;
     *) die "unknown arg: $1" ;;
@@ -46,6 +52,8 @@ if [[ "$DEPRECATED_FLAG" -eq 1 ]]; then
 fi
 
 [[ -d "$AGENT_DATA" ]] || die "AGENT_DATA not found: $AGENT_DATA"
+echo "WARNING: Unencrypted full-data backup; credentials and secrets may be included." >&2
+echo "WORKSPACE=$WORKSPACE OUT_ROOT=$OUT_ROOT BACKUP_EXCLUDE_PATHS=${BACKUP_EXCLUDE_PATHS:-}" >&2
 mkdir -p "$DEST"/{agents,shared,workspace,meta}
 
 # Resolve symlink for clarity in manifest
@@ -68,38 +76,16 @@ AGENT_COUNT=0
 for agent_dir in "${AGENT_DIRS[@]}"; do
   [[ -d "$agent_dir" ]] || continue
   agent_id="$(basename "$agent_dir")"
-  # skip non-uuid folders if any
+  # Only actual UUID/hex agent directories; ignore organization, people, etc.
+  [[ "$agent_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ || "$agent_id" =~ ^[0-9a-fA-F]{32}$ ]] || continue
   [[ -f "${agent_dir}profile.json" || -f "${agent_dir}settings.json" ]] || continue
   AGENT_COUNT=$((AGENT_COUNT + 1))
   out="$DEST/agents/${agent_id}"
   mkdir -p "$out"
 
-  for f in profile.json settings.json group.json projects.json; do
-    [[ -f "${agent_dir}${f}" ]] && cp -a "${agent_dir}${f}" "$out/"
-  done
-
-  # avatars
-  shopt -s nullglob
-  for av in "${agent_dir}"avatar.*; do
-    cp -a "$av" "$out/"
-  done
-  shopt -u nullglob
-
-  # memory, routines, channels-ish folders, attachments, reference
-  for d in memory automations channels attachments reference; do
-    [[ -d "${agent_dir}${d}" ]] && cp -a "${agent_dir}${d}" "$out/"
-  done
-
-  # notes: copied in full (no private rules since 2026-10-09)
-  [[ -d "${agent_dir}notes" ]] && cp -a "${agent_dir}notes" "$out/"
-
-  # optional: include main sqlite stores (conversation/blob state) without WAL/SHM
-  for db in store.db conversation-blobs.db; do
-    [[ -f "${agent_dir}${db}" ]] && cp -a "${agent_dir}${db}" "$out/"
-  done
-
-  # human-readable audit trail (not secrets)
-  [[ -f "${agent_dir}audit.jsonl" ]] && cp -a "${agent_dir}audit.jsonl" "$out/"
+  # Preserve every accessible per-agent file, including private/, hidden files,
+  # attached data and SQLite sidecar files. Never filter based on sensitivity.
+  cp -a "${agent_dir}." "$out/"
 
   # name for index
   if [[ -f "${agent_dir}profile.json" ]] && command -v python3 >/dev/null; then
@@ -209,35 +195,39 @@ manifest = {
     "agent_count": agent_count,
     "agents": agents,
     "included": [
-        "agents/*/profile.json, settings.json, avatar.*, memory/, automations/",
-        "agents/*/attachments/, reference/, audit.jsonl, notes/ (all)",
-        "agents/*/store.db, conversation-blobs.db (no WAL/SHM)",
+        "agents/<UUID>/** (all accessible per-agent files, including private/)",
+        "agent attachments, notes, audit records and SQLite sidecars (raw file copies)",
+        "agent SQLite files may be live copies; database consistency is not guaranteed",
         "shared/workflows (user skills)",
         "shared/user-memory, shared/projects (if present)",
         "shared/agent-transcripts (excluding sand-subagent-* unless INCLUDE_SUBAGENTS=1)",
         "workspace/ (excludes only backup output and, by default, bulky directories; see meta/workspace-copy.json)",
         "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, attachment-index.md, frozen supplement)",
         "meta/backup-program/ (repo source at HEAD + COMMIT)",
-        "platform-memory/ human-readable RecallMemory drops (00-shared/memory, 01-assistants/<name>/memory) when /workspace/exports/memory-drop exists",
+        "platform-memory/ human-readable RecallMemory drops when MEMORY_DROP exists",
         "agents/<id>/platform-memory/ and shared/platform-memory/ raw jsonl from those drops",
     ],
     "excluded": [
         "Host-level files outside the included trees are not deliberately copied; included folders can still contain secrets",
         "managed-skills/, plugin-skills/ (Cursor-managed)",
-        "*.db-wal, *.db-shm, locks, telemetry, search-index*, sand-statsig*",
+        "Only explicitly unselected sources are excluded; active platform index is also exported as conversation snapshots",
         "sand-subagent transcripts (default)",
     ],
     "workspace_copy": workspace_report,
+    "memory_drop": os.environ.get("MEMORY_DROP", os.path.join(os.environ.get("WORKSPACE", "/workspace"), "exports/memory-drop")),
     "include_subagents": os.environ.get("INCLUDE_SUBAGENTS", "0") == "1",
-    "full_backup": not any(x.endswith("(bulky directory)") for x in workspace_report["skipped"]) and os.environ.get("INCLUDE_SUBAGENTS", "0") == "1",
+    "full_backup": not any(
+        x.endswith("(bulky directory)") or x.endswith("(configured exclusion)")
+        for x in workspace_report["skipped"]
+    ) and os.environ.get("INCLUDE_SUBAGENTS", "0") == "1",
     "full_backup_note": "This flag describes optional workspace/subagent exclusions only; platform memory or inaccessible sources may remain missing.",
     "notes": [
         "All assistants on one account share this computer filesystem.",
         "Per-agent identity/memory lives under agents/<id>/; skills under workflows/; scratch deliverables under /workspace.",
-        "This archive is a portable backup for leaving Grok Bot lock-in; restore is manual copy-back / re-import.",
+        "This archive is a portable backup for leaving Grok Bot lock-in; restoration is outside this tool.",
         "Full backup: no private rules since 2026-10-09; all notes, attachments and conversations are included.",
-        "Local memory/ files are still frozen at 2026-10-06 15:10.",
-        "Platform memory phase 1: copied from /workspace/exports/memory-drop when present (see platform-memory/memory-index.md). Agents without a drop are marked not exported.",
+        "Local memory files can be stale; verify platform-memory drop freshness.",
+        "Platform memory: copied from MEMORY_DROP when provided. Missing drops are marked not exported.",
     ],
     "file_count": len(files),
     "total_bytes": total_bytes,
@@ -256,8 +246,8 @@ Exported from shared box computer.
 - `agents/<agent-id>/` — profile, settings, avatar, memory, routines, attachments, reference, sqlite stores
 - `shared/workflows/` — user-authored skills
 - `conversations/` — **full chat history of every assistant** (one folder per display name, monthly Markdown, Asia/Taipei); start at `conversations/README.md`
-- `shared/agent-transcripts/` — frozen local transcript jsonl with tool calls (until ~2026-09-16)
-- `shared/user-memory/`, `shared/projects/` — only if those folders exist (local files, frozen 2026-10-06)
+- `shared/agent-transcripts/` — locally available transcript JSONL with tool calls (may be stale)
+- `shared/user-memory/`, `shared/projects/` — if present; check the source timestamps
 - `platform-memory/` — human-readable platform memory from RecallMemory drops (phase 1); index at `platform-memory/memory-index.md`
 - `agents/<id>/platform-memory/` — raw jsonl of that assistant's drop, if any
 - `workspace/` — shared work products / deliverables from `/workspace`
@@ -265,7 +255,7 @@ Exported from shared box computer.
 - `meta/backup-program/` — the backup program used (repo source at commit `{program_commit}`)
 
 ## Excluded on purpose
-Host files outside selected trees, SQLite WAL/SHM, and (by default) sand-subagent transcripts. Bulky workspace directories are optional; inspect `meta/workspace-copy.json` for exact exclusions.
+Host files outside selected trees and, by default, sand-subagent transcripts. Workspace exports, explicit exclusions, and optional bulky directories are recorded in `meta/workspace-copy.json`.
 
 ## Re-run
 ```bash
@@ -275,7 +265,7 @@ INCLUDE_SUBAGENTS=1 INCLUDE_BULKY_DIRS=1 bin/export-grok-bot-backup.sh
 ```
 
 Conversation messages: {conv_total} (snapshot {conv["cutoff_taipei"]} Asia/Taipei)
-Platform memory (phase 1): see `platform-memory/memory-index.md`. Local `memory/` files remain frozen at 2026-10-06.
+Platform memory (phase 1): see `platform-memory/memory-index.md`. Local `memory/` files may be outdated; inspect their timestamps.
 
 Agents found: {agent_count}
 Total files: {len(files)}

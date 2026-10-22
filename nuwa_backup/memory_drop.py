@@ -1,6 +1,6 @@
 """Phase-1 platform memory: copy peer/self RecallMemory drops into a backup.
 
-Drops live in /workspace/exports/memory-drop/ (not produced by this module).
+Drops live under MEMORY_DROP (default WORKSPACE/exports/memory-drop).
 Missing drops are recorded as not exported and never fail the backup.
 """
 from __future__ import annotations
@@ -16,12 +16,13 @@ from .common import AGENT_DATA, lock_down, safe_name, write
 MEMORY_DROP_DEFAULT = pathlib.Path(os.environ.get("WORKSPACE", "/workspace")) / "exports" / "memory-drop"
 
 # (id, display name, required). Loaded from a site config file, never hardcoded.
-# Set NUWA_BACKUP_CONFIG=/path/to/config.json (default: ./config.json next to the repo).
+# Set GROK_BACKUP_CONFIG=/path/to/config.json (default: repo/config.json).
 # See config.example.json.
 def _load_expected_agents() -> list[tuple[str, str, bool]]:
     cfg = pathlib.Path(os.environ.get(
-        "NUWA_BACKUP_CONFIG",
-        str(pathlib.Path(__file__).resolve().parent.parent / "config.json")))
+        "GROK_BACKUP_CONFIG",
+        os.environ.get("NUWA_BACKUP_CONFIG",
+                       str(pathlib.Path(__file__).resolve().parent.parent / "config.json"))))
     if not cfg.is_file():
         return []
     data = json.loads(cfg.read_text(encoding="utf-8"))
@@ -188,9 +189,9 @@ def _index_markdown(status: dict) -> str:
     lines = [
         "# Platform memory index (phase 1)",
         "",
-        "Source: `/workspace/exports/memory-drop/` (RecallMemory drop).",
+        f"Source: `{status['drop_root']}` (RecallMemory drop).",
         "Assistants without memory drops are marked 'not exported'; the backup continues.",
-        "Local memory/ files (frozen since 2026-10-06) are retained separately from platform memory.",
+        "Local memory/ files are preserved separately; check their timestamps for freshness.",
         "",
         "## Shared memory (scope=user)",
         "",

@@ -103,6 +103,14 @@ def deleted_agent_ids() -> dict:
     return agents if isinstance(agents, dict) else {}
 
 
+def valid_agent_id(name: str) -> bool:
+    """Accept UUID-like agent IDs, never folders such as organization/people."""
+    return bool(re.fullmatch(
+        r"(?:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})",
+        name,
+    ))
+
+
 def agent_registry() -> dict[str, dict]:
     """id -> {id, name, short, kind(agent|group), dir, display_folder}.
 
@@ -113,7 +121,7 @@ def agent_registry() -> dict[str, dict]:
     if not root.exists():
         return reg
     for d in sorted(root.iterdir()):
-        if not d.is_dir():
+        if not d.is_dir() or not valid_agent_id(d.name):
             continue
         prof = load_json(d / "profile.json", None)
         if prof is None:

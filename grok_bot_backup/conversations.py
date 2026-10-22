@@ -24,7 +24,7 @@ from typing import Callable
 
 from .common import (
     AGENT_DATA, SEARCH_INDEX, WEEKDAYS, agent_registry, fmt_taipei, lock_down,
-    load_json, taipei, unknown_agent_entry, write,
+    load_json, taipei, unknown_agent_entry, valid_agent_id, write,
 )
 
 USER_LABEL = os.environ.get("GROK_BACKUP_USER_LABEL", os.environ.get("NUWA_BACKUP_USER_LABEL", "User"))
@@ -45,9 +45,15 @@ def open_index_snapshot(path: pathlib.Path = SEARCH_INDEX) -> tuple[sqlite3.Conn
 
 
 def index_agent_ids(db: sqlite3.Connection) -> list[str]:
+    """Only count actual assistant/group UUIDs in the conversation index.
+
+    Platform records such as organization, people and procedures can also
+    appear in the index. Those records are not assistants and should never
+    produce placeholder '(Unknown assistant)' folders or verification rows.
+    """
     ids = {r[0] for r in db.execute("select agent_id from agents")}
     ids |= {r[0] for r in db.execute("select distinct agent_id from messages")}
-    return sorted(ids)
+    return sorted(agent_id for agent_id in ids if valid_agent_id(agent_id))
 
 
 def fetch_messages(db, agent_id):

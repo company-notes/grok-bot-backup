@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nuwa_backup.common import valid_agent_id
-from nuwa_backup.workspace import copy_workspace
-from nuwa_backup import virtual_office
+from grok_bot_backup.common import valid_agent_id
+from grok_bot_backup.workspace import copy_workspace
+from grok_bot_backup import virtual_office
 
 
 class BackupSafetyTests(unittest.TestCase):

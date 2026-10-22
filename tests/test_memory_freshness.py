@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from nuwa_backup import verify
+from grok_bot_backup import verify
 
 
 AGENT_ID = "00000000-0000-0000-0000-000000000001"
@@ -39,8 +39,8 @@ class MemoryFreshnessTests(unittest.TestCase):
             }],
         }
         prog = export / "99-backup-program"
-        (prog / "source" / "nuwa_backup").mkdir(parents=True)
-        (prog / "source" / "nuwa_backup" / "common.py").write_text("# demo")
+        (prog / "source" / "grok_bot_backup").mkdir(parents=True)
+        (prog / "source" / "grok_bot_backup" / "common.py").write_text("# demo")
         (prog / "COMMIT").write_text("a" * 40)
         (prog / "conversation-stats.json").write_text(json.dumps(stats))
         (export / "memory-index.md").write_text("# Memory index\n\nnot exported\n")

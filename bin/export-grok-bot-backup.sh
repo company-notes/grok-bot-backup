@@ -130,16 +130,16 @@ if [[ -d "$AGENT_DATA/agent-transcripts" ]]; then
 fi
 
 # --- Workspace contents; the only unconditional exclusion is our own export output. ---
-python3 -m nuwa_backup.workspace "$WORKSPACE" "$DEST/workspace" "$OUT_ROOT" "$DEST/meta/workspace-copy.json"
+python3 -m grok_bot_backup.workspace "$WORKSPACE" "$DEST/workspace" "$OUT_ROOT" "$DEST/meta/workspace-copy.json"
 
 # --- Full conversations of every assistant (platform-synced search index) ---
-python3 -m nuwa_backup.conversations --dest "$DEST/conversations" >/dev/null
+python3 -m grok_bot_backup.conversations --dest "$DEST/conversations" >/dev/null
 
 # --- Platform memory drops (phase 1). Missing agents are not exported, never fatal. ---
-python3 -m nuwa_backup.memory_drop --into-grok "$DEST" >/dev/null
+python3 -m grok_bot_backup.memory_drop --into-grok "$DEST" >/dev/null
 
 # --- Copy of this backup program: repo source at HEAD + commit hash ---
-python3 -m nuwa_backup.program "$DEST/meta/backup-program" > "$DEST/meta/.program.out"
+python3 -m grok_bot_backup.program "$DEST/meta/backup-program" > "$DEST/meta/.program.out"
 PROGRAM_COMMIT="$(sed -n 's/^PROGRAM_COMMIT=//p' "$DEST/meta/.program.out")"
 rm -f "$DEST/meta/.program.out"
 

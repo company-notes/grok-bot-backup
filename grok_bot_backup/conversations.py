@@ -322,8 +322,15 @@ def write_top_index(path: pathlib.Path, stats: list[dict], links: dict[str, str]
 
 def export_all(layout: Callable[[dict], pathlib.Path], attach_link_for: Callable[[dict, pathlib.Path], Callable | None],
                index_path: pathlib.Path, link_for: Callable[[dict, pathlib.Path], str],
-               stats_path: pathlib.Path, rel_root: pathlib.Path | None = None) -> list[dict]:
+               stats_path: pathlib.Path, rel_root: pathlib.Path | None = None,
+               index_snapshot_path: pathlib.Path | None = None) -> list[dict]:
     db, cutoff = open_index_snapshot()
+    if index_snapshot_path is not None:
+        # Preserve every indexed record, including non-assistant platform rows,
+        # without misclassifying those rows as assistant conversations.
+        index_snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(index_snapshot_path) as copy:
+            db.backup(copy)
     reg = agent_registry()
     ids = sorted(set(index_agent_ids(db)) | set(reg))
     stats, links = [], {}
@@ -359,7 +366,9 @@ def main() -> None:
         return lambda f: f"../../agents/{info['id']}/attachments/{f}"
 
     stats = export_all(layout, attach_link_for, dest / "README.md",
-                       lambda info, d: d.name, dest / "conversation-stats.json", rel_root=dest.parent)
+                       lambda info, d: d.name, dest / "conversation-stats.json",
+                       rel_root=dest.parent,
+                       index_snapshot_path=dest / "search-index-snapshot.db")
     lock_down(dest)
     print(f"CONVERSATIONS_DIR={dest}")
     for s in stats:

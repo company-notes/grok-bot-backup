@@ -33,9 +33,9 @@ EXPECTED_AGENTS: list[tuple[str, str, bool]] = _load_expected_agents()
 
 TIER_ORDER = ("profile", "log", "note")
 TIER_TITLE = {
-    "profile": "常駐（profile）",
-    "log": "自有（log）",
-    "note": "自有（note）",
+    "profile": "Persistent (profile)",
+    "log": "Assistant-owned (log)",
+    "note": "Assistant-owned (note)",
 }
 
 
@@ -58,7 +58,7 @@ def load_jsonl(path: pathlib.Path) -> list[dict]:
                 "date": "",
                 "tier": "note",
                 "scope": "",
-                "fact": f"（第 {i} 行不是合法 JSON，已略過解析、原文保留在 jsonl）",
+                "fact": f"(Line {i} contains invalid JSON; parsing skipped, original preserved in JSONL)",
                 "source": "unparsed",
             })
             continue
@@ -85,13 +85,13 @@ def render_markdown(rows: list[dict], title: str, intro: str) -> str:
     order += [k for k in buckets if k not in order]
     parts = [f"# {title}", "", intro.rstrip(), ""]
     if not rows:
-        parts.append("（沒有事實）")
+        parts.append("(no facts)")
         parts.append("")
         return "\n".join(parts)
     titles = {
         **TIER_TITLE,
-        "conversation": "對話範圍（conversation）",
-        "unknown": "未標層級",
+        "conversation": "Conversation scope (conversation)",
+        "unknown": "Unspecified tier",
     }
     for key in order:
         group = buckets.get(key) or []
@@ -100,13 +100,13 @@ def render_markdown(rows: list[dict], title: str, intro: str) -> str:
         parts.append(f"## {titles.get(key, key)}")
         parts.append("")
         for row in group:
-            date = str(row.get("date") or "（無日期）")
-            scope = str(row.get("scope") or "（無 scope）")
+            date = str(row.get("date") or "(no date)")
+            scope = str(row.get("scope") or "(no scope)")
             source = str(row.get("source") or "self")
             fact = str(row.get("fact") or "").rstrip()
             parts.append(f"### {date} · {scope} · {source}")
             parts.append("")
-            parts.append(fact if fact else "（空白）")
+            parts.append(fact if fact else "(blank)")
             parts.append("")
     return "\n".join(parts)
 
@@ -186,29 +186,29 @@ def scan(root: pathlib.Path | None = None) -> dict:
 
 def _index_markdown(status: dict) -> str:
     lines = [
-        "# 平台記憶索引（phase 1）",
+        "# Platform memory index (phase 1)",
         "",
-        "來源：`/workspace/exports/memory-drop/`（RecallMemory 投放）。",
-        "沒有投放的助理標「not exported」，不中斷備份。",
-        "本機 `memory/` 檔（停在 2026-10-06）仍另外保留，與此處的平台記憶分開。",
+        "Source: `/workspace/exports/memory-drop/` (RecallMemory drop).",
+        "Assistants without drops are marked「not exported」，; the backup continues.",
+        "Local memory/ files (frozen since 2026-10-06) are retained separately from platform memory.",
         "",
-        "## 共用記憶（scope=user）",
+        "## Shared memory (scope=user)",
         "",
     ]
     if status["shared_user"] is None:
         lines.append("- not exported")
     else:
-        lines.append(f"- exported：{status['shared_user']['count']} 則 → `00-shared/記憶/`")
-    lines += ["", "## 各助理", ""]
+        lines.append(f"- exported : {status['shared_user']['count']} records → `00-shared/memory/`")
+    lines += ["", "## Per assistant", ""]
     for a in status["agents"]:
-        tag = "" if a["required"] else "（選用）"
+        tag = "" if a["required"] else " (optional)"
         if not a["dropped"]:
-            lines.append(f"- {a['name']}{tag}：not exported")
+            lines.append(f"- {a['name']}{tag} : not exported")
         else:
-            bits = ", ".join(f"{k} {n} 則" for k, n in a["files"].items())
-            lines.append(f"- {a['name']}{tag}：exported（{bits}）")
+            bits = ", ".join(f"{k} {n} records" for k, n in a["files"].items())
+            lines.append(f"- {a['name']}{tag} : exported({bits})")
     if status["extra_ids"]:
-        lines += ["", "## 名冊以外的投放", ""]
+        lines += ["", "## Additional drops not in the configured roster", ""]
         for i in status["extra_ids"]:
             lines.append(f"- `{i}`")
     lines.append("")
@@ -225,26 +225,26 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
     write(dest / "memory-index.md", _index_markdown(status))
 
     shared_src = root / "shared-user" / "memory-user.jsonl"
-    shared_dir = dest / "00-shared" / "記憶"
+    shared_dir = dest / "00-shared" / "memory"
     if shared_src.is_file():
         rows = load_jsonl(shared_src)
         _copy_jsonl(shared_src, shared_dir / "memory-user.jsonl")
         write(shared_dir / "shared-memory.md", render_markdown(
             rows,
-            "共用記憶",
-            "scope=user，所有助理共用。每則含日期、scope、source 與全文，可用 grep 搜尋。",
+            "Shared memory",
+            "scope=user, shared across assistants. Each record includes date, scope, source, and full text; searchable with grep.",
         ))
-        write(shared_dir / "README.md", """# 共用記憶
+        write(shared_dir / "README.md", """# Shared memory
 
-| 檔案 | 說明 |
+| File | Description |
 |---|---|
-| `shared-memory.md` | 人可讀，依 tier 分節（常駐 profile／自有 log／note） |
-| `memory-user.jsonl` | 原始投放，一行一則 |
+| `shared-memory.md` | Human-readable, grouped by tier (persistent profile, assistant-owned log/note) |
+| `memory-user.jsonl` | Original drop data, one JSONL record per line |
 
-本機凍結檔仍在 `../shared-agent-memory/`（若 virtual-office 包）或 grok export 的 `shared/user-memory/`。
+Frozen local copies remain in `../shared-agent-memory/` (for Virtual Office exports) or in the Grok raw export at `shared/user-memory/`。
 """)
     else:
-        write(shared_dir / "README.md", "# 共用記憶\n\nnot exported\n")
+        write(shared_dir / "README.md", "# Shared memory\n\nnot exported\n")
 
     seen: set[str] = set()
     for a in status["agents"]:
@@ -265,14 +265,14 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
             existing = cand
             break
     base = existing if existing is not None else (dest / kind / folder)
-    mem = base / "記憶"
+    mem = base / "memory"
     if not dropped:
         # only note inside the pack index; don't invent empty per-agent files
-        # unless that agent's folder already exists (so a reader opening 記憶/ sees the gap)
+        # unless that agent's folder already exists (so a reader opening memory/ sees the gap)
         if existing is not None:
             note = mem / "platform-memory.md"
             if not note.exists():
-                write(note, f"# 平台記憶\n\nnot exported\n\n（{label}，`{agent_id}`）\n")
+                write(note, f"# Platform memory\n\nnot exported\n\n({label}，`{agent_id}`)\n")
         return
     files = _agent_drop_files(drop_dir)
     rows: list[dict] = []
@@ -281,9 +281,9 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
         rows.extend(load_jsonl(src))
     write(mem / "platform-memory.md", render_markdown(
         rows,
-        f"平台記憶 · {label}",
-        "由該助理用 RecallMemory 投放。常駐＝tier profile；自有＝tier log／note。"
-        " 每則含日期與全文。jsonl 為原始列。",
+        f"Platform memory · {label}",
+        "Exported by this assistant using RecallMemory. Persistent = profile tier; assistant-owned = log/note tiers."
+        " Each record includes a date and full content; JSONL preserves the original entries.",
     ))
 
 

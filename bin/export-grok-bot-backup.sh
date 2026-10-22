@@ -3,7 +3,7 @@
 # Includes: all agents' profiles/settings/avatars/memory/routines/attachments/reference,
 #           conversation transcripts, user skills (workflows), workspace work products.
 #           + full chat history of every assistant from the platform-synced search index
-#             (conversations/<顯示名>/YYYY-MM.md), + a copy of this program at its git commit.
+#             (conversations/<display-name>/YYYY-MM.md), + a copy of this program at its git commit.
 # NOTE: this is a FULL, SENSITIVE local backup. Included workspace and agent files may contain credentials. Never publish export archives.
 # Part of company-notes/grok-bot-backup; run directly.
 set -euo pipefail
@@ -218,7 +218,7 @@ manifest = {
         "workspace/ (excludes only backup output and, by default, bulky directories; see meta/workspace-copy.json)",
         "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, attachment-index.md, frozen supplement)",
         "meta/backup-program/ (repo source at HEAD + COMMIT)",
-        "platform-memory/ human-readable RecallMemory drops (00-shared/記憶, 01-assistants/<name>/記憶) when /workspace/exports/memory-drop exists",
+        "platform-memory/ human-readable RecallMemory drops (00-shared/memory, 01-assistants/<name>/memory) when /workspace/exports/memory-drop exists",
         "agents/<id>/platform-memory/ and shared/platform-memory/ raw jsonl from those drops",
     ],
     "excluded": [

@@ -2,7 +2,7 @@
 """Export Grok Bot durable state as a human-readable Virtual Office pack.
 
 Not for restoring Grok internals. Organized for people / any virtual office:
-  00-shared/   01-assistants/<顯示名>/   02-groups/<群組名>/   99-backup-program/
+  00-shared/   01-assistants/<display-name>/   02-groups/<group-name>/   99-backup-program/
 Each assistant gets conversations/ with the full chat history (monthly Markdown)
 from the platform-synced search index.
 """
@@ -35,7 +35,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
     profile = json.loads(profile_path.read_text(encoding="utf-8"))
     name = profile.get("name") or agent_dir.name
     if name.strip() == "New Bot" and not (profile.get("description") or "").strip():
-        name = "New Bot（not configured）"
+        name = "New Bot(not configured)"
     folder = dest_agents / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
 
@@ -50,15 +50,15 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
             settings = {}
     write(folder / "profile.md", f"""# {name}
 
-- 內部 ID：`{agent_dir.name}`
-- 職稱／Title：{title or "（無）"}
-- 匯出時間（UTC）：{STAMP}
+- Internal ID: `{agent_dir.name}`
+- Title: {title or "(none)"}
+- Export time (UTC): {STAMP}
 
-## 人物／角色設定
+## Role description
 
-{desc.strip() or "（尚無描述）"}
+{desc.strip() or "(no description)"}
 
-## 設定摘要
+## Settings summary
 
 ```json
 {json.dumps(settings, ensure_ascii=False, indent=2)}
@@ -73,8 +73,8 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
     if mem.exists():
         for p in mem.rglob("*"):
             if p.is_file():
-                copy_if(p, folder / "記憶" / p.relative_to(mem))
-        parts = ["# 記憶彙整\n", "> 注意：本機記憶檔停在 2026-10-06 15:10，之後的記憶尚未納入備份。\n"]
+                copy_if(p, folder / "memory" / p.relative_to(mem))
+        parts = ["# Memory summary\n", "> Note: local memory files stopped updating on 2026-10-06 15:10. Later platform memories require separate export.\n"]
         for p in sorted(mem.rglob("*.md")):
             parts.append(f"## {p.relative_to(mem)}\n\n{p.read_text(encoding='utf-8', errors='replace')}\n")
         write(folder / "memory-summary.md", "\n".join(parts))
@@ -92,7 +92,7 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
                 if p.is_file() and ".uploads" not in p.parts:
                     copy_if(p, folder / dst_name / p.relative_to(src))
 
-    # notes：全部依原資料夾結構匯出（2026-10-09 起沒有private規則）
+    # notes: copy all files in their source structure (no private-content filtering since 2026-10-09)
     notes = agent_dir / "notes"
     if notes.exists():
         for p in notes.rglob("*"):
@@ -101,18 +101,18 @@ def export_agent(agent_dir: pathlib.Path, dest_agents: pathlib.Path, id_to_name:
 
     write(folder / "README.md", f"""# {name}
 
-本資料夾是可移植的「虛擬員工／角色」包，供人閱讀或匯入其他 virtual office。
+This is a portable virtual employee/role package that a person can read or import into another virtual office.
 
-| 檔案／資料夾 | 說明 |
+| File / folder | Description |
 |---|---|
-| `profile.md` | 名稱、角色、行為準則 |
-| `avatar.*` | avatar圖 |
-| `conversations/` | **完整對話**（每月一個 .md，台北時間；`README.md` 為索引） |
-| `記憶/`、`memory-summary.md` | 長期記憶（本機檔，停在 2026-10-06） |
-| `notes-and-profiles/` | 助理筆記（全部，依原資料夾結構） |
-| `attachments-and-work/` | 聊天附件與產出（hash 檔名；對照見 `conversations/attachment-index.md`） |
-| `references/` | 角色參考文件 |
-| `routines/` | routines（若有） |
+| `profile.md` | Name, role, and behavior guidelines |
+| `avatar.*` | Avatar image |
+| `conversations/` | **Full conversations**(one .md file per month, Taipei time;`README.md` is the index) |
+| `memory/`、`memory-summary.md` | Long-term memory(local files, frozen since 2026-10-06) |
+| `notes-and-profiles/` | All assistant notes, preserving their directory structure |
+| `attachments-and-work/` | Chat attachments and outputs (hash-based filenames; see `conversations/attachment-index.md`) |
+| `references/` | Role reference documents |
+| `routines/` | routines(if present) |
 """)
     id_to_name[agent_dir.name] = name
     return name
@@ -125,27 +125,27 @@ def export_group(group_dir: pathlib.Path, dest_groups: pathlib.Path, id_to_name:
     folder = dest_groups / safe_name(name)
     folder.mkdir(parents=True, exist_ok=True)
     members = group.get("memberIds") or []
-    member_lines = [f"- {id_to_name.get(mid, mid)}（`{mid}`）" for mid in members]
-    write(folder / "group-profile.md", f"""# 群組：{name}
+    member_lines = [f"- {id_to_name.get(mid, mid)}(`{mid}`)" for mid in members]
+    write(folder / "group-profile.md", f"""# Group: {name}
 
-- 內部 ID：`{group_dir.name}`
-- 匯出時間（UTC）：{STAMP}
+- Internal ID: `{group_dir.name}`
+- Export time (UTC): {STAMP}
 
-## 成員
+## Members
 
-{chr(10).join(member_lines) or "（無）"}
+{chr(10).join(member_lines) or "(none)"}
 
-## 說明
+## Description
 
-{profile.get("description") or "（無額外描述）"}
+{profile.get("description") or "(no additional description)"}
 """)
     mem = group_dir / "memory"
     if mem.exists():
         for p in mem.rglob("*.md"):
-            copy_if(p, folder / "記憶" / p.relative_to(mem))
-    write(folder / "README.md", f"""# 群組：{name}
+            copy_if(p, folder / "memory" / p.relative_to(mem))
+    write(folder / "README.md", f"""# Group: {name}
 
-人可讀群組包。成員名單見 `group-profile.md`；群內對話見 `conversations/`（若有）。
+人可讀群組包。Members名單see `group-profile.md`；Group conversations: `conversations/`(if present)。
 """)
 
 
@@ -191,14 +191,14 @@ def export_shared(dest_shared: pathlib.Path) -> None:
             for p in item.rglob("*"):
                 if p.is_file() and (with_bulky or not any(bulky(part) for part in p.relative_to(item).parts)):
                     copy_if(p, wp / item.name / p.relative_to(item))
-    write(dest_shared / "README.md", """# 共用區
+    write(dest_shared / "README.md", """# Shared area
 
-| 資料夾 | 說明 |
+| Folder | Description |
 |---|---|
-| `company/` | company理念、職責、project-memory、原始簡報 |
-| `shared-agent-memory/` | 所有助理都會帶的短事實（本機檔，停在 2026-10-06） |
-| `skills-and-workflows/` | 可重用技能 |
-| `workspace-outputs/` | 共用電腦上的工作成果（記帳等） |
+| `company/` | Company charter, responsibilities, project memory, and source presentations |
+| `shared-agent-memory/` | Short shared facts available to all assistants(local files, frozen since 2026-10-06) |
+| `skills-and-workflows/` | Reusable skills |
+| `workspace-outputs/` | Shared-box work products (e.g., accounting) |
 """)
 
 
@@ -245,37 +245,37 @@ def main() -> None:
     # ---- copy of this program (repo at HEAD + commit hash)
     prog = snapshot_program(DEST / "99-backup-program")
 
-    roster = ["# 花名冊"] + [f"- {n}（`{i}`）" for i, n in sorted(id_to_name.items(), key=lambda x: x[1])]
+    roster = ["# Roster"] + [f"- {n}(`{i}`)" for i, n in sorted(id_to_name.items(), key=lambda x: x[1])]
     write(DEST / "roster.md", "\n".join(roster))
 
     total_msgs = sum(s["messages"] for s in conv_stats)
-    write(DEST / "README.md", f"""# Virtual Office 可讀匯出包
+    write(DEST / "README.md", f"""# Human-readable Virtual Office export
 
-- 匯出時間（UTC）：`{STAMP}`
-- 目的：**給人看、可搬到任何 virtual office**，不是 Grok Bot 內部還原檔
-- 人類可讀整理包並非原始資料的逐位元副本；完整原始資料請搭配 `grok-bot-export` 檢查
-- 全量備份：所有筆記、附件、對話都包含在內（2026-10-09 起沒有private規則）
-- 對話：{len([s for s in conv_stats if s['messages']])} 位助理／群組、共 {total_msgs} 則（來源：平台同步的 search-index.db，含 2026-10-06 之後）
-- 備份程式版本：commit `{prog.get('commit')}`（完整原始碼在 `99-backup-program/source/`）
+- Export time (UTC): `{STAMP}`
+- Purpose: **readable by people and portable to another virtual office**，not an internal Grok Bot restore image
+- The readable package is not a byte-for-byte copy; for raw data also inspect `grok-bot-export` .
+- Full backup: All notes, attachments and conversations are included(no private-content filtering since 2026-10-09)
+- Conversations: {len([s for s in conv_stats if s['messages']])} assistants/groups, totaling {total_msgs} messages (platform-synced search-index.db, including messages after 2026-10-06)
+- Backup program version: commit `{prog.get('commit')}`(full source snapshot at `99-backup-program/source/`)
 
-## 結構
+## Contents
 
-- `conversation-index.md` — **所有助理的對話總覽**（則數、期間、連結）
-- `00-shared/` — company知識、共用記憶、技能、工作產出
-- `01-assistants/<名>/` — 人物設定、avatar、記憶、**conversations/（每月 .md）**、筆記、附件
-- `02-groups/<名>/` — 群組設定與群內對話
-- `99-backup-program/` — 產生本包的程式原始碼與 commit hash、對話統計
+- `conversation-index.md` — **Conversation overview for all assistants**(counts, date ranges, links)
+- `00-shared/` — Company knowledge, shared memory, skills and deliverables
+- `01-assistants/<name>/` — profiles, avatars, memory, **conversations/(monthly .md files)**、notes and attachments
+- `02-groups/<name>/` — group metadata and conversations
+- `99-backup-program/` — source code, commit and conversation statistics for this backup
 - `roster.md`
 
-## 搜尋
+## Search
 
-解壓後：`grep -rn "關鍵字" 01-assistants/*/conversations/`
+After extraction: `grep -rn "keyword" 01-assistants/*/conversations/`
 
-## 已知限制
+## Known limitations
 
-- 記憶 phase 1：若 `/workspace/exports/memory-drop/` 有投放，會寫進 `00-shared/記憶/` 與各助理 `記憶/platform-memory.md`（見 `memory-index.md`）。沒投放的標「not exported」。本機記憶檔仍停在 2026-10-06 15:10。
-- 平台索引只有雙方看得到的訊息文字；工具呼叫／結果只在「補充-frozen local transcript」（約到 2026-09-16）。
-- 群組對話中，助理訊息無法區分是哪位助理說的。
+- Memory phase 1: if `/workspace/exports/memory-drop/` contains drops, they are copied into `00-shared/memory/` and each assistant's `memory/platform-memory.md`(see `memory-index.md`)。Missing drops are marked「not exported」。Local memory files remain frozen as of 2026-10-06 15:10.
+- The platform index contains only visible chat text; tool calls/results exist only in「the frozen transcript supplement」(through approximately 2026-09-16)。
+- For group conversations, the index does not identify which assistant spoke.
 """)
 
     lock_down(DEST)

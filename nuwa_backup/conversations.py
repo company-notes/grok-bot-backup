@@ -28,8 +28,8 @@ from .common import (
     load_json, taipei, unknown_agent_entry, write,
 )
 
-USER_LABEL = os.environ.get("NUWA_BACKUP_USER_LABEL", "使用者")
-GROUP_ASSISTANT_LABEL = "助理（群組內，索引未標示是哪位）"
+USER_LABEL = os.environ.get("NUWA_BACKUP_USER_LABEL", "User")
+GROUP_ASSISTANT_LABEL = "Assistant (group; speaker unspecified by index)"
 ATTACH_RE = re.compile(r"attachments/([0-9a-f]{64})")
 
 
@@ -123,18 +123,18 @@ def render_month(info, month, rows, media_by_entry) -> str:
     out = [
         f"# {info['name']}｜conversations {month}",
         "",
-        f"- 時區：Asia/Taipei（UTC+8）",
-        f"- 本月訊息：{len(rows)} 則（{USER_LABEL} {users}／助理 {len(rows) - users}）",
-        f"- 來源：平台同步的 search-index.db；訊息內文原文照錄，未經修改",
+        f"- Time zone: Asia/Taipei (UTC+8)",
+        f"- Messages this month: {len(rows)} ({USER_LABEL} {users} / assistant {len(rows) - users} )",
+        f"- Source: platform-synced search-index.db; message bodies are preserved verbatim",
         "",
     ]
     cur_day = None
     for seq, eid, role, ts, body in rows:
         dt = taipei(ts)
-        day = dt.strftime("%Y-%m-%d") if dt else "未知日期"
+        day = dt.strftime("%Y-%m-%d") if dt else "unknown date"
         if day != cur_day:
             cur_day = day
-            wd = f"（{WEEKDAYS[dt.weekday()]}）" if dt else ""
+            wd = f"（{WEEKDAYS[dt.weekday()]} )" if dt else ""
             out += ["---", "", f"## {day}{wd}", ""]
         out.append(f"<!-- entry:{eid} seq:{seq} -->")
         out.append(f"### {fmt_taipei(ts)} · {speaker(role, info)}")
@@ -143,18 +143,18 @@ def render_month(info, month, rows, media_by_entry) -> str:
         att = media_by_entry.get(eid)
         if att:
             out.append("")
-            out.append(f"> 📎 附件：{att['file_name']}（見 `attachment-index.md`）")
+            out.append(f"> 📎 Attachment: {att['file_name']} (see `attachment-index.md` )")
         out.append("")
     return "\n".join(out) + "\n"
 
 
 def render_frozen_transcript(jsonl: pathlib.Path, info, result_limit: int = 2000) -> str:
     out = [
-        f"# {info['name']}｜frozen local transcript（含工具呼叫）",
+        f"# {info['name']}｜frozen local transcript（含工具呼叫 )",
         "",
-        "- 來源：`agent-transcripts/<id>/<id>.jsonl`（2026-10-06 後不再更新，內容約到 2026-09-16）",
-        "- 這份沒有時間戳；完整原始資料見同資料夾的 `agent-transcript.jsonl`",
-        f"- 工具結果超過 {result_limit} 字會截斷（原始 jsonl 未截斷）",
+        "- Source: `agent-transcripts/<id>/<id>.jsonl` (not updated after 2026-10-06; coverage ends around 2026-09-16 )",
+        "- This rendering has no timestamps; see the original data in `agent-transcript.jsonl`",
+        f"- Tool results longer than {result_limit} characters are truncated (raw JSONL remains complete )",
         "",
     ]
     with jsonl.open(encoding="utf-8", errors="replace") as f:
@@ -167,18 +167,18 @@ def render_frozen_transcript(jsonl: pathlib.Path, info, result_limit: int = 2000
             for b in (row.get("message") or {}).get("content") or []:
                 t = b.get("type")
                 if t == "text":
-                    label = {"user": "輸入（使用者／系統）", "assistant": "助理（內部文字）"}.get(role, role)
+                    label = {"user": "輸入（使用者／系統 )", "assistant": "助理（內部文字 )"}.get(role, role)
                     out += [f"### #{n} {label}", "", b.get("text", ""), ""]
                 elif t == "tool_use":
                     inp = b.get("input")
                     inp = inp if isinstance(inp, str) else json.dumps(inp, ensure_ascii=False, indent=1)
-                    out += [f"### #{n} 工具呼叫：`{b.get('name')}`", "", "```", inp, "```", ""]
+                    out += [f"### #{n} Tool call: `{b.get('name')}`", "", "```", inp, "```", ""]
                 elif t == "tool_result":
                     res = b.get("result")
                     res = res if isinstance(res, str) else json.dumps(res, ensure_ascii=False)
                     if len(res) > result_limit:
-                        res = res[:result_limit] + f"\n…（截斷，原長 {len(res)} 字）"
-                    out += [f"#### #{n} 工具結果：`{b.get('name')}`", "", "```", res, "```", ""]
+                        res = res[:result_limit] + f"\n... (truncated, original length {len(res)} 字 )"
+                    out += [f"#### #{n} Tool result: `{b.get('name')}`", "", "```", res, "```", ""]
     return "\n".join(out) + "\n"
 
 
@@ -210,34 +210,34 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
             f.write(json.dumps(m, ensure_ascii=False) + "\n")
 
     # attachments list
-    lines = [f"# {info['name']}｜附件清單", "",
-             "| 時間（台北） | 檔名 | 類型 | 方向 | 本機檔案 |", "|---|---|---|---|---|"]
+    lines = [f"# {info['name']}｜attachment index", "",
+             "| 時間（台北 ) | File name | Type | Direction | Local file |", "|---|---|---|---|---|"]
     found = 0
     for m in media:
         eid = m["entry_id"]
-        direction = "使用者上傳" if re.fullmatch(r"t\d+ua\d+", eid) else "助理傳送"
+        direction = "User upload" if re.fullmatch(r"t\d+ua\d+", eid) else "Assistant upload"
         hit = amap.get(eid)
         if hit and attach_link:
             found += 1
-            mark = "" if hit[1] == "exact" else "（依副檔名推測）"
+            mark = "" if hit[1] == "exact" else "（依副File name推測 )"
             loc = f"[`{hit[0]}`](<{attach_link(hit[0])}>){mark}"
         elif hit:
             found += 1
             loc = f"`{hit[0]}`"
         else:
-            loc = "（box 上找不到對應檔案）"
+            loc = "（no matching file on box )"
         lines.append(f"| {fmt_taipei(m['timestamp_ms'], False)} | {cell(m['file_name'])} | {m.get('kind')} | {direction} | {loc} |")
     if not media:
-        lines.append("| — | （無附件） | | | |")
+        lines.append("| — | （no attachments ) | | | |")
     box_files = []
     if info.get("dir") and (info["dir"] / "attachments").exists():
         box_files = sorted(p.name for p in (info["dir"] / "attachments").iterdir() if p.is_file())
     mapped = {v[0] for v in amap.values()}
     orphan = [f for f in box_files if f not in mapped]
     if orphan:
-        lines += ["", "## box 上其他附件檔（對不到訊息）", ""]
+        lines += ["", "## Additional attachment files not linked to messages )", ""]
         lines += [f"- [`{f}`](<{attach_link(f)}>)" if attach_link else f"- `{f}`" for f in orphan]
-    lines += ["", "> 附件檔本身以 hash 檔名存放；連結指向本備份內的實際檔案位置。"]
+    lines += ["", "> Attachments檔本身以 hash File name存放；連結指向本備份內的實際File位置。"]
     write(conv_dir / "attachment-index.md", "\n".join(lines))
 
     # supplement: frozen local transcript with tool calls
@@ -262,25 +262,25 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
     }
 
     # per-agent index
-    idx = [f"# {info['name']}｜conversations索引", "",
-           f"- 內部 ID：`{info['id']}`",
-           f"- 訊息總數：**{len(rows)}** 則（{USER_LABEL} {users}／助理 {len(rows) - users}）",
-           f"- 期間（台北時間）：{stats['first'] or '—'} ～ {stats['last'] or '—'}",
-           f"- 資料擷取時間（台北）：{fmt_taipei(cutoff_ms)}", ""]
+    idx = [f"# {info['name']}｜conversation index", "",
+           f"- Internal ID: `{info['id']}`",
+           f"- Total messages: **{len(rows)}** ({USER_LABEL} {users} / assistant {len(rows) - users} )",
+           f"- 期間（台北時間 )：{stats['first'] or '—'} ～ {stats['last'] or '—'}",
+           f"- 資料擷取時間（台北 )：{fmt_taipei(cutoff_ms)}", ""]
     if rows:
-        idx += ["## 每月檔案", "", "| 月份 | 則數 | 檔案 |", "|---|---|---|"]
+        idx += ["## Monthly files", "", "| Month | messages數 | File |", "|---|---|---|"]
         idx += [f"| {k} | {v} | [`{k}.md`](<{k}.md>) |" for k, v in stats["months"].items()]
     else:
-        idx += ["_此助理在平台索引中沒有任何訊息。_"]
-    idx += ["", "## 其他", "",
-            f"- [`attachment-index.md`](attachment-index.md)：{len(media)} 個附件（box 上找到 {found} 個）",
-            "- `raw/messages.jsonl`、`raw/media.jsonl`：機器可讀原始資料"]
+        idx += ["_This assistant has no messages in the platform index._"]
+    idx += ["", "## Other", "",
+            f"- [`attachment-index.md`](attachment-index.md)：{len(media)} attachments ({found} items )",
+            "- `raw/messages.jsonl`、`raw/media.jsonl`：Machine-readable raw data"]
     if has_frozen:
-        idx.append("- `frozen-transcript-with-tool-calls/`：舊的本機逐字稿（含工具呼叫，no timestamp戳，約到 2026-09-16）")
-    idx += ["", "## 說明", "",
-            f"- 「{USER_LABEL}」是對話中使用者一方的訊息，通常是 owner，也可能是其他人或其他助理轉來的訊息。",
-            "- 只含雙方看得到的訊息文字；工具呼叫與工具結果不在平台索引內。",
-            "- 搜尋範例：`grep -rn \"關鍵字\" .`"]
+        idx.append("- `frozen-transcript-with-tool-calls/`：Frozen local transcript with tool calls (no timestamps, until around 2026-09-16 )")
+    idx += ["", "## Notes", "",
+            f"- "{USER_LABEL}"是對話中使用者一方的訊息，通常是 owner，也可能是Other人或Other助理轉來的訊息。",
+            "- Only user-visible message text is indexed; tool calls and tool results are not included.",
+            "- Search example: `grep -rn \"keyword\" .`"]
     write(conv_dir / "README.md", "\n".join(idx))
     return stats
 
@@ -288,12 +288,12 @@ def export_agent_conversation(db, info, conv_dir: pathlib.Path, attach_link: Cal
 def write_top_index(path: pathlib.Path, stats: list[dict], links: dict[str, str], cutoff_ms: int,
                     skipped: list[dict]) -> None:
     total = sum(s["messages"] for s in stats)
-    lines = ["# 全部助理對話索引", "",
-             f"- 資料擷取時間（台北）：{fmt_taipei(cutoff_ms)}",
-             f"- 來源：`search-index.db`（平台同步，含 2026-10-06 之後的對話）",
-             f"- 訊息總數：**{total}** 則", "",
-             "| 助理／群組 | 類型 | 則數 | 期間（台北） | 附件 | 資料夾 |", "|---|---|---|---|---|---|"]
-    kind_label = {"agent": "助理", "group": "群組", "deleted": "已刪除", "unknown": "未知"}
+    lines = ["# All assistant conversations", "",
+             f"- 資料擷取時間（台北 )：{fmt_taipei(cutoff_ms)}",
+             f"- Source: `search-index.db`（platform-synced, including conversations after 2026-10-06 )",
+             f"- Total messages: **{total}** messages", "",
+             "| Assistant / group | Type | messages數 | 期間（台北 ) | Attachments | Folder |", "|---|---|---|---|---|---|"]
+    kind_label = {"agent": "Assistant", "group": "Group", "deleted": "Deleted", "unknown": "Unknown"}
     for s in sorted(stats, key=lambda x: (-x["messages"], x["name"])):
         if s["messages"] == 0:
             continue
@@ -302,16 +302,16 @@ def write_top_index(path: pathlib.Path, stats: list[dict], links: dict[str, str]
                      f"{s['first']} ～ {s['last']} | {s['media']} | [{cell(link)}](<{link}/README.md>) |")
     empty = [s for s in stats if s["messages"] == 0] + skipped
     if empty:
-        lines += ["", "## 沒有訊息（略過內容）", ""]
-        lines += [f"- {s['name']}（`{s['agent_id']}`）" for s in empty]
+        lines += ["", "## No messages (no content exported )", ""]
+        lines += [f"- {s['name']}（`{s['agent_id']}` )" for s in empty]
     deleted = load_json(AGENT_DATA / "deleted-agents.json", {}) or {}
     dids = list((deleted.get("agents") or {}).keys()) if isinstance(deleted, dict) else []
     if dids:
         present = {s["agent_id"] for s in stats}
-        lines += ["", "## 已刪除的助理", "",
-                  "以下助理已在平台刪除（`deleted-agents.json`）。若索引裡還有它們的訊息，會以「（Deleted assistant）」資料夾匯出；目前狀態："]
-        lines += [f"- `{d}`：{'exported' if d in present else '索引中無資料（無可備份內容）'}" for d in dids]
-    lines += ["", "## 搜尋", "", "解壓後可直接用 `grep -rn \"關鍵字\" .` 搜尋所有對話。"]
+        lines += ["", "## Deleted assistants", "",
+                  "The following assistants have been deleted on the platform (`deleted-agents.json` )。若索引裡還有它們的訊息，會以"（Deleted assistant )"Folder匯出；目前狀態："]
+        lines += [f"- `{d}`：{'exported' if d in present else 'no index data to back up )'}" for d in dids]
+    lines += ["", "## Search", "", "After extraction, use `grep -rn \"keyword\" .` Search所有對話。"]
     write(path, "\n".join(lines))
 
 
@@ -345,7 +345,7 @@ def main() -> None:
     dest.mkdir(parents=True, exist_ok=True)
 
     def layout(info):
-        prefix = {"group": "群組-", "deleted": "", "unknown": ""}.get(info["kind"], "")
+        prefix = {"group": "group-", "deleted": "", "unknown": ""}.get(info["kind"], "")
         return dest / f"{prefix}{info['folder']}"
 
     def attach_link_for(info, conv_dir):

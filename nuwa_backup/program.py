@@ -44,23 +44,23 @@ def snapshot_program(dest: pathlib.Path) -> dict:
     dirty_note = ""
     if info.get("dirty"):
         dirty_note = (
-            "\n> ⚠️ 執行時工作目錄有未提交的修改，`source/` 是 HEAD 的內容，"
-            "實際執行的程式可能與此不同：\n\n```\n" + info.get("status", "") + "\n```\n"
+            "\n> ⚠️ The working tree contains uncommitted changes. `source/` contains the HEAD revision; "
+            "the executed program may differ:\n\n```\n" + info.get("status", "") + "\n```\n"
         )
     write(
         dest / "VERSION.md",
-        f"""# 本次備份使用的備份程式
+        f"""# Backup program used for this export
 
 - Repo：`{REPO_ROOT}`
 - Commit：`{info.get('commit')}`
 - HEAD：{info.get('head', '')}
-- 有未提交修改：{info.get('dirty')}
-- 產生時間（UTC）：{datetime.now(timezone.utc).isoformat()}
+- Uncommitted changes: {info.get('dirty')}
+- Generated at (UTC): {datetime.now(timezone.utc).isoformat()}
 - Python：{sys.version.split()[0]}
 {dirty_note}
-`source/` 是該 commit 的完整原始碼（`git archive HEAD`），可直接用來重跑或審查。
+`source/` contains the complete source code of this commit (`git archive HEAD`); use it to rerun or audit the export.
 
-## 最近 commit
+## Recent commits
 
 ```
 {info.get('log', '')}

@@ -96,7 +96,7 @@ def main() -> None:
         check(False, "memory-index.md present (phase 1)")
     else:
         idx = mem_index.read_text(encoding="utf-8")
-        check("not exported" in idx or "exported" in idx, "記憶索引 mentions exported or not exported")
+        check("not exported" in idx or "exported" in idx, "memory index mentions exported or not exported")
         # shared jsonl, if present in the drop, must be copied
         import hashlib as _hashlib
         drop = pathlib.Path(__import__("os").environ.get("MEMORY_DROP", "/workspace/exports/memory-drop"))

@@ -21,7 +21,7 @@ SEARCH_INDEX = AGENT_DATA / "search-index.db"
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 TAIPEI = timezone(timedelta(hours=8), name="Asia/Taipei")
-WEEKDAYS = "一二三四五六日"
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def utc_stamp() -> str:
@@ -140,7 +140,7 @@ def unknown_agent_entry(agent_id: str) -> dict:
     return {
         "id": agent_id,
         "name": label,
-        "short": "助理",
+        "short": "Assistant",
         "kind": "deleted" if deleted else "unknown",
         "dir": None,
         "folder": safe_name(label),

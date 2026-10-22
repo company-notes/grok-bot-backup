@@ -2,7 +2,7 @@
 from pathlib import Path
 import unittest
 
-from nuwa_backup import conversations, memory_drop
+from grok_bot_backup import conversations, memory_drop
 
 
 class EnglishOutputTests(unittest.TestCase):
@@ -25,7 +25,7 @@ class EnglishOutputTests(unittest.TestCase):
 
     def test_source_has_no_han_characters(self):
         root = Path(__file__).resolve().parents[1]
-        for folder in ("nuwa_backup", "bin", "tests"):
+        for folder in ("grok_bot_backup", "bin", "tests"):
             for path in (root / folder).rglob("*"):
                 if not path.is_file() or path.suffix not in (".py", ".sh"):
                     continue

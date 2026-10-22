@@ -16,7 +16,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Verify Python syntax
-        run: python -m compileall -q nuwa_backup tests
+        run: python -m compileall -q grok_bot_backup tests
       - name: Verify shell syntax
         run: bash -n bin/*.sh
       - name: Run regression tests

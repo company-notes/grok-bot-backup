@@ -134,11 +134,11 @@ This tool has been used in an actual assistant environment in an earlier version
 - `bin/export-virtual-office.sh`: human-readable export.
 - `bin/export-grok-bot-backup.sh`: raw backup and manifest.
 - `bin/verify-export.sh`: verification.
-- `nuwa_backup/conversations.py`: export message and media index.
-- `nuwa_backup/memory_drop.py`: RecallMemory drop conversion.
-- `nuwa_backup/virtual_office.py`: portable folder tree.
-- `nuwa_backup/workspace.py`: workspace exclusions and copy reports.
-- `nuwa_backup/program.py`: source and commit snapshot.
+- `grok_bot_backup/conversations.py`: export message and media index.
+- `grok_bot_backup/memory_drop.py`: RecallMemory drop conversion.
+- `grok_bot_backup/virtual_office.py`: portable folder tree.
+- `grok_bot_backup/workspace.py`: workspace exclusions and copy reports.
+- `grok_bot_backup/program.py`: source and commit snapshot.
 - `tests/`: lightweight regression tests.
 
 ## License

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nuwa_backup.workspace import copy_workspace
+from grok_bot_backup.workspace import copy_workspace
 
 
 class WorkspaceBackupTests(unittest.TestCase):

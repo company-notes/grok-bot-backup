@@ -1,146 +1,161 @@
 # Grok Bot Backup
 
-**Unofficial, open-source backup and export tools for Grok Bot assistants.** Export accessible data from a Grok Bot shared box as both a raw archive and a human-readable Virtual Office package, including assistant profiles, memories, notes, attachments, workspace deliverables, and chat history.
+Unofficial, open-source export utilities for **Grok Bot** shared-box environments. Keep as much accessible data as possible in two forms: raw files and human-readable Markdown for handover to another AI assistant or a person.
 
-This is a backup/export utility, **not an official Grok Bot API or a one-click restore tool**. It expects filesystem access to the platform's shared box, including `agent-data/search-index.db`. Platform storage formats and permissions can change.
-
-## Requirements
-
-- Linux box with Bash, Python 3, `git`, `tar`, and the Grok Bot shared data directories available.
-- Run from a **cloned Git checkout**. The export includes `git archive HEAD` and a commit ID to identify the version used.
-- Permission to read the underlying agent data and write to the export directory.
+**Status:** The previous Virtual Office implementation had a severe recursive-copy bug that filled a shared box disk. This revision includes regression tests and checks both output locations. **Run a fresh-box validation before relying on it in production.** This project is not a one-click restore tool.
 
 ## Quick start
+
+Requirements: Linux, Bash, Python 3.12+, Git, tar, and **filesystem access** to your Grok Bot shared box (`/home/box/agent-data` by default). It does not log into a web account or download your data from the cloud.
 
 ```bash
 git clone https://github.com/company-notes/grok-bot-backup.git
 cd grok-bot-backup
-
-cp config.example.json config.json
-# Edit config.json if you want to track expected memory drops.
+cp config.example.json config.json  # Optional: edit your assistant roster
 
 python3 -m unittest discover -s tests -v
-bin/export-virtual-office.sh          # Human-readable archive
-bin/export-grok-bot-backup.sh         # Raw export + portable conversation records
+bin/export-grok-bot-backup.sh         # Raw data + portable conversations
+bin/export-virtual-office.sh         # Human-readable Markdown handover
 ```
 
-Both commands print the destination and archive path. To verify an export:
+Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository.
+
+**Disk-space planning:** there is no fixed minimum. Size depends on your source data. Allow room for the uncompressed export directory **and** its compressed archive, plus headroom for other agents using the box. If the disk is limited, consider excluding large regenerable directories or choosing an external `OUT_ROOT`.
+
+## Selective exclusions: full content by default
+
+Both export commands use the same safe workspace copier. They **always** exclude the currently configured `OUT_ROOT` and `$WORKSPACE/exports` (even if `OUT_ROOT` points elsewhere). This avoids recursively backing up newly created and older exports.
+
+Everything else under the accessible workspace, **including `secrets/`**, is eligible for backup unless excluded explicitly. There is no sensitive-content filter. Agents' `private/` folders are also included.
 
 ```bash
-bin/verify-export.sh /workspace/exports/virtual-office-YYYYMMDDTHHMMSSZ
-bin/verify-export.sh /workspace/exports/grok-bot-export-YYYYMMDDTHHMMSSZ
+# Include any secrets by default:
+bin/export-grok-bot-backup.sh
 
-# Optional: require at least one message on a specific date.
-bin/verify-export.sh /path/to/export --date YYYY-MM-DD
+# Optional: skip a particular workspace directory:
+bin/export-grok-bot-backup.sh --exclude secrets
+bin/export-virtual-office.sh --exclude secrets
+
+# Multiple workspace-relative or absolute paths (Linux path separator ':'):
+BACKUP_EXCLUDE_PATHS="secrets:old-archives:/mnt/other-data" bin/export-grok-bot-backup.sh
+
+# Or repeat the command-line option:
+bin/export-virtual-office.sh --exclude secrets --exclude old-archives
 ```
 
-The default verification checks conversation counts against the platform index, checks program provenance, and checks the notes and available memory drops. It is **not a guarantee that inaccessible platform state can be recovered**.
+The `BACKUP_EXCLUDE_PATHS` variable and `--exclude` options apply to **workspace paths**. They do not automatically filter agent memory, conversations, or private content in `AGENT_DATA`. Exclusions are recorded in the raw export's `meta/workspace-copy.json` and the Virtual Office export's `workspace-copy.json`.
 
-## Environment variables
-
-| Variable | Default | Meaning |
-| --- | --- | --- |
-| `AGENT_DATA` | `/home/box/agent-data` | Platform agent data root |
-| `WORKSPACE` | `/workspace` | Shared workspace |
-| `OUT_ROOT` | `$WORKSPACE/exports` | Directory for exports |
-| `MEMORY_DROP` | `$WORKSPACE/exports/memory-drop` | RecallMemory drop location |
-| `NUWA_BACKUP_CONFIG` | `<repo>/config.json` | Optional list of expected agents |
-| `NUWA_BACKUP_USER_LABEL` | `User` | Label for the user side of chat history |
-| `INCLUDE_SUBAGENTS` | `0` | Set `1` to include sand-subagent transcript directories |
-| `INCLUDE_BULKY_DIRS` | `0` | Set `1` to include large workspace directories such as `.venv*`, `.cache`, `node_modules`, `__pycache__`, and `.git` |
-
-For the most inclusive backup supported by this code:
+Large build/caching directories (`.venv*`, `.cache`, `node_modules`, `__pycache__`, `.git`) are skipped by default to control size; use `INCLUDE_BULKY_DIRS=1` to include them. To include the optional sand-subagent transcripts in the raw export, use `INCLUDE_SUBAGENTS=1`:
 
 ```bash
 INCLUDE_BULKY_DIRS=1 INCLUDE_SUBAGENTS=1 bin/export-grok-bot-backup.sh
 INCLUDE_BULKY_DIRS=1 bin/export-virtual-office.sh
 ```
 
-The tool excludes its own output to prevent recursive archiving. With `INCLUDE_BULKY_DIRS=0`, skipped items are recorded in the raw export's `meta/workspace-copy.json`. Even with both options enabled, some source data may be inaccessible or unsynchronized.
+**Warning:** "All accessible data" cannot include information the local platform does not expose. See memory preparation below.
 
-## What gets exported
+## Prepare platform memory *before* backup
 
-### Human-readable Virtual Office package
+The program can copy local memory files, but it **cannot invoke each assistant's internal RecallMemory tool**. An assistant must explicitly export its own currently available memory first. Do this for **every assistant** on the shared box and for shared (`scope=user`) memory where permitted.
 
-The `virtual-office-<UTC>/` directory uses **English folder names and English-generated headings**, but **never translates or rewrites the original conversations, notes, or memories**:
+Set `MEMORY_DROP` to the prepared directory. Default: `$WORKSPACE/exports/memory-drop`. Use this structure:
 
 ```text
-virtual-office-<UTC>/
-├── README.md
-├── conversation-index.md
-├── roster.md
-├── memory-index.md
-├── 00-shared/
-│   ├── company/
-│   ├── shared-agent-memory/
-│   ├── skills-and-workflows/
-│   ├── workspace-outputs/
-│   └── memory/               # Shared RecallMemory exports, when supplied
-├── 01-assistants/<display-name>/
-│   ├── profile.md
-│   ├── conversations/         # YYYY-MM.md, README.md, raw JSONL, attachment-index.md
-│   ├── memory/
-│   ├── memory-summary.md
-│   ├── notes-and-profiles/
-│   ├── attachments-and-work/
-│   ├── references/
-│   └── routines/
-├── 02-groups/<group-name>/
-└── 99-backup-program/         # Source snapshot, commit, version, conversation stats
+memory-drop/
+├── shared-user/
+│   └── memory-user.jsonl
+└── agents/
+    └── <agent-uuid>/
+        ├── memory-profile.jsonl
+        └── memory-agent.jsonl
 ```
 
-### Raw Grok Bot export
+The program accepts any `*.jsonl` under `agents/<agent-uuid>/`. Each line must be one JSON object, preserving the **full original memory text**, for example:
 
-The `grok-bot-export-<UTC>/` directory includes, where available:
+```json
+{"date":"2026-10-22","tier":"profile","scope":"agent","source":"RecallMemory","fact":"Example persistent fact"}
+```
 
-- `agents/<id>/`: profile, settings, avatars, memories, notes, reference files, attachments, routines, SQLite stores, audit records.
-- `shared/`: project data, local shared memory, workflows, frozen local transcripts.
-- `workspace/`: workspace files with configurable large-directory inclusion.
-- `conversations/<display-name>/`: monthly Markdown and original JSONL from the platform-synced search index.
-- `platform-memory/`: human-readable RecallMemory drops, plus raw JSONL under agent and shared directories.
-- `meta/MANIFEST.json`, `meta/workspace-copy.json`, `meta/backup-program/`: inventory, exclusions, source code and version.
+Use `tier` of `profile`, `log`, or `note`, with `scope` and `source` reflecting what the assistant actually retrieved. Do not invent facts or claim completeness if recall was partial. The exporter also preserves the JSONL files byte-for-byte alongside readable Markdown.
 
-Note that the raw export still reflects platform-specific data structures. A human-readable export helps handovers but is not a byte-for-byte replacement for the raw state.
+Copy this request to **each** assistant (adjust for its tool access):
 
-## Data availability and limitations
+> Use your available RecallMemory interface to retrieve all memory facts you are permitted to see, covering every available tier and scope, including older records. Export the complete facts—not summaries—to valid UTF-8 JSONL, one JSON object per line, under `$MEMORY_DROP/agents/<your-agent-uuid>/`. Include `date`, `tier`, `scope`, `source`, and `fact`. If you can export shared user memory, write it to `$MEMORY_DROP/shared-user/memory-user.jsonl`. Report any tool limitations and the number of facts exported. Do not modify the source memories.
 
-| Source | What is available | Caveat |
+**Freshness matters.** The verifier uses the JSONL files' modification times as the export-time proxy; the raw files are copied with their timestamps preserved. An old `memory-drop` can make a backup look complete even though new memories are missing. Do not reset timestamps to pretend old exports are new.
+
+## Verify the backup
+
+```bash
+bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC>
+bin/verify-export.sh /workspace/exports/virtual-office-<UTC>
+
+# Default max memory age is 2 days; stale/missing drops show WARN.
+MEMORY_MAX_AGE_DAYS=2 bin/verify-export.sh /path/to/export
+
+# Require memory drops to be present and recent:
+MEMORY_MAX_AGE_DAYS=2 bin/verify-export.sh /path/to/export --strict
+
+# Optional: require at least one conversation on a particular day:
+bin/verify-export.sh /path/to/export --date YYYY-MM-DD
+```
+
+The verifier prints each available assistant's memory-file modification timestamp and age relative to the backup snapshot. It lists missing drops by assistant name. A missing/stale drop is a **WARN** (exit 0 if other checks pass); with `--strict` it becomes **FAIL** (nonzero exit). This check does not prove that all memories have been retrieved—it detects absent or aging export files.
+
+Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `platform-memory/memory-index.md` for included data, exclusions, and RecallMemory status. The readable export has `memory-index.md`, `conversation-index.md`, and `workspace-copy.json`. Verification compares conversation messages against the live search index and checks exported notes and memory drops; check the source before assuming universal compatibility.
+
+## Environment variables
+
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| `agent-data/search-index.db` | Platform-synced messages and media | Consistent SQLite snapshot; visible chat text, not complete tool execution |
-| `agent-transcripts/<id>/<id>.jsonl`, `store.db` | Frozen local transcript and tool-call history | On the original box, updates stopped around September/October 2026 |
-| `agents/<id>/` | Profiles, local memory, notes, attachments | Local memory may be stale |
-| `memory-drop/` | Optional exported RecallMemory facts | Missing drops are reported as **not exported**, not manufactured or silently claimed to exist |
-| `/workspace` | Accessible work products | Large directory inclusion is configurable |
+| `AGENT_DATA` | `/home/box/agent-data` | Root of the local platform agent data |
+| `WORKSPACE` | `/workspace` | Shared workspace |
+| `OUT_ROOT` | `$WORKSPACE/exports` | Backup destination; automatically excluded |
+| `BACKUP_EXCLUDE_PATHS` | empty | Optional colon-separated workspace paths to omit |
+| `INCLUDE_BULKY_DIRS` | `0` | Set `1` to include large dependency/cache folders |
+| `INCLUDE_SUBAGENTS` | `0` | Set `1` to include sand-subagent transcripts in raw backup |
+| `MEMORY_DROP` | `$WORKSPACE/exports/memory-drop` | Pre-exported platform memory files |
+| `MEMORY_MAX_AGE_DAYS` | `2` | Max age of a memory drop before WARN / strict FAIL |
+| `GROK_BACKUP_CONFIG` | `<repo>/config.json` | Optional expected agent roster |
+| `GROK_BACKUP_USER_LABEL` | `User` | Conversation label for the human side |
 
-These observations are based on the original host environment, **not universal claims about all Grok Bot installations**. Check the version and contents of your own box.
+Older `NUWA_BACKUP_CONFIG` and `NUWA_BACKUP_USER_LABEL` environment variables remain accepted for compatibility, but new setup should use the `GROK_BACKUP_*` names.
 
-**No private-content filtering:** all available notes, conversations, attachments, and included workspace data are backed up without excluding content based on sensitivity. The old `--include-private` and `--passphrase` arguments are accepted only for compatibility and **do nothing**. They do **not** enable encryption.
+## Archive contents
 
-**Backup destination and security are your responsibility.** The exports may contain personal data, credentials or tokens. The script applies restrictive file permissions (directories `0700`, files `0600`), but **does not encrypt** exports. Do not publish real backup archives to a public repository.
+### Raw export: `grok-bot-export-<UTC>/`
 
-## Verification and portability
+- `agents/<uuid>/`: all accessible files belonging to genuine agent UUID directories, including `private/`, notes, settings, attachments, memory, and local databases. Unrelated `organization/` and `people/` folders are not counted as agents.
+- `shared/`: local shared memory, projects, workflows, and optionally frozen subagent transcripts.
+- `workspace/`: shared workspace files, subject to configurable exclusions.
+- `conversations/`: monthly human-readable Markdown and raw JSONL from the platform-synchronized SQLite index.
+- `platform-memory/`: readable RecallMemory export, when supplied.
+- `meta/`: file inventory, workspace omissions, and this program's git revision.
 
-To preserve as much as the platform exposes, check assistant counts, full conversations, memory drops, notes, attachments, and skipped directories. Inspect:
+### Human-readable export: `virtual-office-<UTC>/`
 
-- `meta/MANIFEST.json` for the raw export inventory.
-- `meta/workspace-copy.json` for skipped workspace paths.
-- `memory-index.md` for exported versus missing RecallMemory drops.
-- The `99-backup-program/` or `meta/backup-program/` source snapshot and `COMMIT` file.
+- `00-shared/`: available projects, shared memory, skills, **workspace outputs**.
+- `01-assistants/<name>/`: profiles, notes, **private** content, routines, attachments, conversations, memory.
+- `02-groups/<name>/`: group information and conversations.
+- `99-backup-program/`: source code version and conversation statistics.
+- `memory-index.md`, `conversation-index.md`, `workspace-copy.json`: export indexes.
 
-This tool has been used in an actual assistant environment in an earlier version; the **repackaged open-source version requires fresh testing on the target box**. Always verify a newly run backup before depending on it for disaster recovery.
+Textual labels and directory names generated by this utility are in English. Original data and messages are **not translated**.
 
-## Source layout
+## Limitations
 
-- `bin/export-virtual-office.sh`: human-readable export.
-- `bin/export-grok-bot-backup.sh`: raw backup and manifest.
-- `bin/verify-export.sh`: verification.
-- `grok_bot_backup/conversations.py`: export message and media index.
-- `grok_bot_backup/memory_drop.py`: RecallMemory drop conversion.
-- `grok_bot_backup/virtual_office.py`: portable folder tree.
-- `grok_bot_backup/workspace.py`: workspace exclusions and copy reports.
-- `grok_bot_backup/program.py`: source and commit snapshot.
-- `tests/`: lightweight regression tests.
+- The platform search index generally provides visible conversation text. Tool calls and tool results can require older on-box transcripts; availability varies by environment.
+- Agent local SQLite copies may be live files. The conversation index is snapshot consistently, but **not every raw database is guaranteed to be a consistent snapshot**.
+- Local memory can be stale. The memory-drop process requires agent cooperation; exported-fact completeness is not technically guaranteed.
+- Different Grok Bot versions may use different internal storage layouts. Paths must be checked on the target box.
+- This is an **export**, not an automatic restore workflow. Recovery/rehydration into a new provider must be planned separately.
 
-## License
+## Test
 
-MIT. See [LICENSE](LICENSE).
+```bash
+python3 -m compileall -q grok_bot_backup tests
+bash -n bin/*.sh
+python3 -m unittest discover -s tests -v
+```
+
+See `.github/workflows/ci.yml` for continuous integration, and [LICENSE](LICENSE) for the MIT license.

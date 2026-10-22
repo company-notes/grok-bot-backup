@@ -105,7 +105,7 @@ def deleted_agent_ids() -> dict:
 
 def valid_agent_id(name: str) -> bool:
     """Accept UUID-like agent IDs, never folders such as organization/people."""
-    return bool(re.fullmatch(
+    return isinstance(name, str) and bool(re.fullmatch(
         r"(?:[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}|[0-9a-fA-F]{32})",
         name,
     ))

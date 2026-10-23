@@ -11,7 +11,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from grok_bot_backup import verify
+from grok_bot_backup import verify, memory_drop
 
 
 AGENT_ID = "00000000-0000-0000-0000-000000000001"
@@ -152,6 +152,63 @@ class MemoryFreshnessTests(unittest.TestCase):
             code, output = self._run(export, data, True)
             self.assertEqual(code, 0)
             self.assertIn("SKIP MEMORY Company group: group chat", output)
+
+    def test_group_memory_is_checked_if_actually_supplied(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            group_id = "00000000-0000-0000-0000-000000000002"
+            stats_file = export / "99-backup-program/conversation-stats.json"
+            stats = json.loads(stats_file.read_text())
+            group_dir = export / "02-groups/Company group"
+            (group_dir / "conversations").mkdir(parents=True)
+            (group_dir / "memory").mkdir()
+            (group_dir / "memory/memory-group.jsonl").write_text("")
+            stats["agents"].append({
+                "agent_id": group_id, "name": "Company group", "kind": "group",
+                "conv_dir": str((group_dir / "conversations").relative_to(export)),
+                "messages": 0, "first": None, "last": None,
+            })
+            stats_file.write_text(json.dumps(stats))
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("FAIL group Company group", output)
+
+    def test_explicit_empty_declarations_are_preserved_by_both_exporters(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            source = base / "memory-drop"
+            agent_source = source / "agents" / AGENT_ID
+            agent_source.mkdir(parents=True)
+            shared = source / "shared-user"
+            shared.mkdir()
+            (agent_source / "memory-status.json").write_text(json.dumps({
+                "status": "no_memories", "agent_id": AGENT_ID,
+                "checked_at_utc": "2026-10-22T08:00:00Z",
+            }))
+            (shared / "memory-status.json").write_text(json.dumps({
+                "status": "no_memories", "scope": "user",
+                "checked_at_utc": "2026-10-22T08:00:00Z",
+            }))
+            with patch.object(memory_drop, "drop_root", return_value=source), \\
+                 patch.object(memory_drop, "EXPECTED_AGENTS",
+                              [(AGENT_ID, "Test Agent", True)]), \\
+                 patch.object(memory_drop, "AGENT_DATA", base / "no-agent-data"):
+                readable = base / "virtual-office"
+                (readable / "01-assistants/Test Agent").mkdir(parents=True)
+                memory_drop.apply_tree(readable, {AGENT_ID: "Test Agent"})
+                self.assertTrue((readable /
+                    "01-assistants/Test Agent/memory/memory-status.json").exists())
+                self.assertTrue((readable /
+                    "00-shared/memory/memory-status.json").exists())
+                self.assertNotIn("not exported",
+                    (readable / "00-shared/memory/README.md").read_text())
+
+                raw = base / "grok-bot-export"
+                memory_drop.apply_grok(raw)
+                self.assertTrue((raw /
+                    f"agents/{AGENT_ID}/platform-memory/memory-status.json").exists())
+                self.assertTrue((raw /
+                    "shared/platform-memory/memory-status.json").exists())
 
     def test_invalid_memory_jsonl_cannot_pass_strict(self):
         with tempfile.TemporaryDirectory() as temp:

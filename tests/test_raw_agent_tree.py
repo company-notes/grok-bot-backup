@@ -12,6 +12,7 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 
 AGENT_ID = "00000000-0000-0000-0000-000000000001"
@@ -89,6 +90,16 @@ class RawAgentTreeTests(unittest.TestCase):
             manifests = list(output.glob("grok-bot-export-*/meta/MANIFEST.json"))
             self.assertEqual(len(manifests), 1)
             folder = manifests[0].parents[1]
+            zipped = folder.with_suffix(".zip")
+            self.assertTrue(zipped.is_file())
+            self.assertFalse(folder.with_suffix(".tar.gz").exists())
+            with zipfile.ZipFile(zipped) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertIn(f"{folder.name}/agents/active-agent.json", archive.namelist())
+                self.assertEqual(
+                    archive.read(f"{folder.name}/agents/active-agent.json").decode("utf-8"),
+                    source_files["active-agent.json"],
+                )
 
             for name, expected in source_files.items():
                 with self.subTest(name=name):
@@ -113,7 +124,8 @@ class RawAgentTreeTests(unittest.TestCase):
                 )
 
             verified = subprocess.run(
-                [str(repo / "bin" / "verify-export.sh"), str(folder)],
+                [str(repo / "bin" / "verify-export.sh"), str(folder),
+                 "--archive", str(zipped)],
                 cwd=repo, env=env, capture_output=True, text=True, timeout=60,
             )
             self.assertEqual(verified.returncode, 0,

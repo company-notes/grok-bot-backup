@@ -1,6 +1,6 @@
 """Verify a finished export: conversations vs search index, program copy, notes completeness.
 
-usage: python3 -m grok_bot_backup.verify <export-dir> [--archive X.tar.gz] [--date YYYY-MM-DD]
+usage: python3 -m grok_bot_backup.verify <export-dir> [--archive X.zip] [--date YYYY-MM-DD]
 Prints a short report; exit code 1 if any check fails. Never prints message bodies.
 """
 from __future__ import annotations
@@ -13,6 +13,7 @@ import pathlib
 import re
 import sqlite3
 import tarfile
+import zipfile
 
 import hashlib
 
@@ -88,9 +89,25 @@ def main() -> None:
     check(prog is not None and (prog / "source" / "grok_bot_backup" / "common.py").exists(), "program source present")
 
     if a.archive:
-        with tarfile.open(a.archive) as tar:
-            names = tar.getnames()
-        check(any(n.endswith("/COMMIT") for n in names), f"archive contains program COMMIT ({len(names)} members)")
+        archive_path = pathlib.Path(a.archive)
+        try:
+            if zipfile.is_zipfile(archive_path):
+                with zipfile.ZipFile(archive_path) as zipped:
+                    names = zipped.namelist()
+                    corrupt = zipped.testzip()
+                check(corrupt is None,
+                      "ZIP data integrity" if corrupt is None else f"corrupt ZIP entry: {corrupt}")
+            elif tarfile.is_tarfile(archive_path):
+                # Existing .tar.gz archives remain verifiable for compatibility.
+                with tarfile.open(archive_path, "r:*") as tar:
+                    names = tar.getnames()
+                print("INFO Legacy tar archive: ZIP is now the default output")
+            else:
+                raise ValueError("not a readable ZIP or legacy tar archive")
+            check(any(n.endswith("/COMMIT") for n in names),
+                  f"archive contains program COMMIT ({len(names)} members)")
+        except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError) as exc:
+            check(False, f"cannot read archive: {exc}")
 
     # full backup: every source notes/ file must have a byte-identical copy in the export
     def sha(p: pathlib.Path) -> str:

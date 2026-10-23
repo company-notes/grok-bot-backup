@@ -17,7 +17,7 @@ WORKSPACE="${WORKSPACE:-/workspace}"
 OUT_ROOT="${OUT_ROOT:-${WORKSPACE}/exports}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 DEST="${OUT_ROOT}/grok-bot-export-${STAMP}"
-ARCHIVE="${OUT_ROOT}/grok-bot-export-${STAMP}.tar.gz"
+ARCHIVE="${OUT_ROOT}/grok-bot-export-${STAMP}.zip"
 
 # No private-content filtering: all accessible source files are eligible.
 # --include-private / --passphrase are still accepted for compatibility but ignored.
@@ -283,11 +283,10 @@ Total bytes: {total_bytes}
 print(f"Manifest written: {len(files)} files, {total_bytes} bytes, {agent_count} agents")
 PY
 
-# --- Tar ---
+# --- ZIP (Windows-compatible, retains symlinks as ZIP link entries) ---
 mkdir -p "$OUT_ROOT"
 find "$DEST" -type d -exec chmod 700 {} + ; find "$DEST" -type f -exec chmod 600 {} +
-tar -C "$OUT_ROOT" -czf "$ARCHIVE" "$(basename "$DEST")"
-chmod 600 "$ARCHIVE"
+python3 -m grok_bot_backup.archive "$DEST" "$ARCHIVE"
 
 # summary
 python3 - "$DEST" "$ARCHIVE" <<'PY'

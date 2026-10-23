@@ -22,7 +22,7 @@ bin/export-grok-bot-backup.sh         # Raw data + portable conversations
 bin/export-virtual-office.sh         # Human-readable Markdown handover
 ```
 
-Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository.
+Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Both commands produce a standard `.zip` archive** (alongside the uncompressed export folder), which can be opened with Windows File Explorer. No additional compression utility or Python install is needed to *extract* the ZIP on Windows. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository.
 
 **Disk-space planning:** there is no fixed minimum. Size depends on your source data. Allow room for the uncompressed export directory **and** its compressed archive, plus headroom for other agents using the box. If the disk is limited, consider excluding large regenerable directories or choosing an external `OUT_ROOT`.
 
@@ -52,6 +52,22 @@ The shipped `config.example.json` uses `"expected_agents": []`, so copying it un
 ```
 
 Use `required: true` only for assistants you actually expect on your own box; `required: false` marks an optional assistant. The roster controls expectations for memory-drop reporting, not what private or shared content is copied. The backup will not filter content by sensitivity.
+
+### Opening the ZIP on Windows
+
+1. Copy the `grok-bot-export-<UTC>.zip` or `virtual-office-<UTC>.zip` file to a **private** location on your PC. These archives are **not password-protected**, even if they contain passwords or other secrets.
+2. In Windows File Explorer, right-click the ZIP and choose **Extract All…**; select an empty, private folder. You can then open the `.md` documents with a text editor such as VS Code. The Virtual Office ZIP is organized for handoff and reading.
+3. ZIP archives preserve the export folder as one top-level directory; do not extract their contents directly into a live Grok Bot filesystem. Extremely long paths and Unix-only filenames or symbolic links may require an advanced extractor and a Linux box for a fully faithful raw recovery.
+
+ZIP uses standard compression with **ZIP64** support for files or archives over 4 GB and UTF-8 names for non-ASCII paths. Symlinks are saved **as Unix-style link entries without following their targets**, to prevent copying data outside the chosen backup scope. Windows built-in extraction does **not** re-create Unix symlinks or POSIX permissions reliably; this affects exact restoration, not the readability of ordinary documents. The original uncompressed export remains available for platform-specific recovery.
+
+To verify a ZIP against a still-accessible Grok Bot box, pass it explicitly:
+
+```bash
+bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC> --archive /workspace/exports/grok-bot-export-<UTC>.zip --strict
+```
+
+Old `.tar.gz` backups remain readable by supported archive tools and can still be passed to `verify-export.sh --archive`. The exporter no longer creates new `.tar.gz` files by default.
 
 ## Selective exclusions: full content by default
 
@@ -137,6 +153,11 @@ Shared user memory may use the same mechanism under `shared-user/memory-status.j
 
 ## Verify the backup
 
+### ZIP archive verification
+
+Each finished export now includes a `.zip` archive and an uncompressed directory. The normal folder check verifies contents against the live source index; add `--archive /path/to/file.zip` to also check the ZIP's file integrity and confirm it includes the backup program snapshot. Verification remains able to inspect legacy `.tar.gz` archives.
+
+
 ```bash
 bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC>
 bin/verify-export.sh /workspace/exports/virtual-office-<UTC>
@@ -209,11 +230,13 @@ Use an archive **you trust**. Backup archives may include secrets and symbolic l
 ```bash
 umask 077
 mkdir -p "$HOME/grok-bot-recovery"
-tar -tzf /path/to/grok-bot-export-YYYYMMDDTHHMMSSZ.tar.gz
-tar -xzf /path/to/grok-bot-export-YYYYMMDDTHHMMSSZ.tar.gz -C "$HOME/grok-bot-recovery"
+python3 -m zipfile -l /path/to/grok-bot-export-YYYYMMDDTHHMMSSZ.zip
+python3 -m zipfile -e /path/to/grok-bot-export-YYYYMMDDTHHMMSSZ.zip "$HOME/grok-bot-recovery"
 ```
 
-Replace the example archive path with your real backup. The archive creates a `grok-bot-export-<UTC>/` subdirectory. For the readable export, use its corresponding `virtual-office-<UTC>.tar.gz` archive in the same manner. You can also use an already-extracted export directory rather than a `.tar.gz`.
+Replace the example archive path with your real backup. The archive creates a `grok-bot-export-<UTC>/` subdirectory. For the readable export, use its corresponding `virtual-office-<UTC>.zip` archive in the same manner. On Windows, use File Explorer → **Extract All…** instead. Inspect untrusted archives before extracting; Python's basic unzip example is for trusted backups and is **not a substitute for secure extraction checks**. You can also use an already-extracted export directory rather than a `.zip`.
+
+For existing **legacy `.tar.gz`** backups (not produced by current versions), keep using `tar -tzf <archive>` to inspect and `tar -xzf <archive> -C "$HOME/grok-bot-recovery"` to extract on a trusted Unix machine.
 
 **Never run** `tar -xzf ... -C /home/box/agent-data` or blindly copy the entire raw export over a live Grok Bot installation. The backup's directory layout is an export layout, **not** a drop-in image of the platform's original filesystem.
 

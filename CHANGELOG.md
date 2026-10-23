@@ -1,5 +1,13 @@
 # Changelog
 
+## ZIP default — 2026-10-23
+
+- Both raw and Virtual Office exports now produce Windows-friendly `.zip` archives using Python's standard library, with ZIP64 and UTF-8 support.
+- Preserve symlink entries without dereferencing them; use the original file copies for Unix-specific recovery.
+- The verifier accepts and checks new ZIP archives and retains support for older `.tar.gz` backups.
+- Add extraction instructions for Windows and regression tests for ZIP content.
+
+
 ## 2026-10-22 — Full agent-tree and previous-export safeguards
 
 - Preserve all accessible entries under `agent-data/agents/`, including non-assistant platform folders and root-level metadata, without counting them as assistants.

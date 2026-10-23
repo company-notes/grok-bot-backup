@@ -13,7 +13,7 @@ import json
 import os
 import pathlib
 import shutil
-import tarfile
+
 
 from . import conversations
 from .memory_drop import apply_tree as apply_memory_drop
@@ -21,6 +21,7 @@ from .common import (
     AGENT_DATA, OUT_ROOT, WORKSPACE, add_deprecated_private_args, copy_if,
     lock_down, safe_name, utc_stamp, warn_deprecated_private_args, write, valid_agent_id,
 )
+from .archive import create_zip
 from .program import snapshot_program
 from .workspace import copy_workspace
 
@@ -263,10 +264,8 @@ After extraction: `grep -rn "keyword" 01-assistants/*/conversations/`
 """)
 
     lock_down(DEST)
-    archive = OUT_ROOT / f"virtual-office-{STAMP}.tar.gz"
-    with tarfile.open(archive, "w:gz") as tar:
-        tar.add(DEST, arcname=DEST.name)
-    archive.chmod(0o600)
+    archive = OUT_ROOT / f"virtual-office-{STAMP}.zip"
+    create_zip(DEST, archive)
 
     files = [p for p in DEST.rglob("*") if p.is_file()]
     print(f"DEST={DEST}")

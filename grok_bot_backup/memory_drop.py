@@ -160,7 +160,7 @@ def scan(root: pathlib.Path | None = None) -> dict:
     """Status only: counts, no fact text."""
     root = root or drop_root()
     shared = root / "shared-user" / "memory-user.jsonl"
-    shared_n = len(load_jsonl(shared)) if shared.is_file() else None
+    shared_n = len(load_jsonl(shared)) if shared.is_file() else (0 if _status_file(root / "shared-user").is_file() else None)
     agents = []
     for aid, label, required in EXPECTED_AGENTS:
         d = root / "agents" / aid
@@ -205,7 +205,7 @@ def _index_markdown(status: dict) -> str:
     if status["shared_user"] is None:
         lines.append("- not exported")
     else:
-        lines.append(f"- Exported: {status['shared_user']['count']} records → 00-shared/memory/")
+        lines.append(f"- Exported or explicitly declared empty: {status['shared_user']['count']} records → 00-shared/memory/")
     lines += ["", "## Per assistant", ""]
     for a in status["agents"]:
         tag = "" if a["required"] else " (optional)"
@@ -235,12 +235,12 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
 
     shared_src = root / "shared-user" / "memory-user.jsonl"
     shared_dir = dest / "00-shared" / "memory"
+    shared_status = _status_file(root / "shared-user")
+    if shared_status.is_file():
+        _copy_jsonl(shared_status, shared_dir / "memory-status.json")
     if shared_src.is_file():
         rows = load_jsonl(shared_src)
         _copy_jsonl(shared_src, shared_dir / "memory-user.jsonl")
-        shared_status = _status_file(root / "shared-user")
-        if shared_status.is_file():
-            _copy_jsonl(shared_status, shared_dir / "memory-status.json")
         write(shared_dir / "shared-memory.md", render_markdown(
             rows,
             "Shared memory",

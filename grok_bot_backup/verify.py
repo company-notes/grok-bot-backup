@@ -205,8 +205,13 @@ def main() -> None:
     for agent in st["agents"]:
         name = agent["name"]
         if agent.get("kind") == "group":
-            print(f"SKIP MEMORY {name}: group chat is not an individual assistant; "
-                  "no separate memory drop is required")
+            group_mem = export_memory_dir(agent)
+            if list(group_mem.glob("*.jsonl")) or (group_mem / "memory-status.json").is_file():
+                verify_memory_set(group_mem, f"group {name} ({agent['agent_id']})",
+                                  agent["agent_id"])
+            else:
+                print(f"SKIP MEMORY {name}: group chat is not an individual assistant; "
+                      "no separate memory drop is required")
             continue
         if agent.get("kind") != "agent":
             continue
@@ -217,8 +222,12 @@ def main() -> None:
     # counted as exported if it is present as a zero-record file.
     shared_memory = (root / "shared" / "platform-memory" if
                      (root / "conversations").exists() else root / "00-shared" / "memory")
-    if shared_memory.is_dir() and list(shared_memory.glob("*.jsonl")):
+    if shared_memory.is_dir() and (list(shared_memory.glob("*.jsonl")) or
+                                   (shared_memory / "memory-status.json").is_file()):
         verify_memory_set(shared_memory, "shared user memory")
+    else:
+        print("SKIP MEMORY shared user memory: no export available; "
+              "shared memory may not be accessible to this assistant")
 
     # Compare copied platform drops to the input set when the live source is
     # still available. Do not use current source mtimes to assess backup age.

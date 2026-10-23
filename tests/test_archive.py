@@ -16,9 +16,9 @@ class ArchiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / "virtual-office-20261023T000000Z"
-            (source / "01-assistants" / "中文助理").mkdir(parents=True)
-            payload = "文件、備份、memories".encode("utf-8") + b"\x00\xff"
-            (source / "01-assistants" / "中文助理" / "notes.md").write_bytes(payload)
+            (source / "01-assistants" / "\u4e2d\u6587\u52a9\u7406").mkdir(parents=True)
+            payload = "\u6587\u4ef6\u3001\u5099\u4efd\u3001memories".encode("utf-8") + b"\x00\xff"
+            (source / "01-assistants" / "\u4e2d\u6587\u52a9\u7406" / "notes.md").write_bytes(payload)
             (source / "empty").mkdir()
             zipfile_path = root / (source.name + ".zip")
             result = create_zip(source, zipfile_path)
@@ -28,7 +28,7 @@ class ArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(result) as archive:
                 self.assertIsNone(archive.testzip())
                 self.assertEqual(
-                    archive.read(f"{source.name}/01-assistants/中文助理/notes.md"),
+                    archive.read(f"{source.name}/01-assistants/\u4e2d\u6587\u52a9\u7406/notes.md"),
                     payload,
                 )
                 self.assertIn(f"{source.name}/empty/", archive.namelist())

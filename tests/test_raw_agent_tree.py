@@ -132,6 +132,36 @@ class RawAgentTreeTests(unittest.TestCase):
                              verified.stdout + "\n" + verified.stderr)
             self.assertIn("RESULT OK", verified.stdout)
 
+            # The human-readable exporter must also create a valid Windows ZIP.
+            readable = subprocess.run(
+                [str(repo / "bin" / "export-virtual-office.sh")],
+                cwd=repo, env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(readable.returncode, 0,
+                             readable.stdout + "\\n" + readable.stderr)
+            readable_dirs = [p for p in output.glob("virtual-office-*") if p.is_dir()]
+            self.assertEqual(len(readable_dirs), 1)
+            human_dir = readable_dirs[0]
+            human_zip = human_dir.with_suffix(".zip")
+            self.assertTrue(human_zip.is_file())
+            self.assertFalse(human_dir.with_suffix(".tar.gz").exists())
+            with zipfile.ZipFile(human_zip) as archive:
+                self.assertIsNone(archive.testzip())
+                self.assertIn(f"{human_dir.name}/README.md", archive.namelist())
+                self.assertTrue(any(
+                    item.endswith("/conversations/conversation-stats.json") or
+                    item.endswith("/conversation-index.md")
+                    for item in archive.namelist()
+                ))
+            human_checked = subprocess.run(
+                [str(repo / "bin" / "verify-export.sh"), str(human_dir),
+                 "--archive", str(human_zip)],
+                cwd=repo, env=env, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(human_checked.returncode, 0,
+                             human_checked.stdout + "\\n" + human_checked.stderr)
+            self.assertIn("RESULT OK", human_checked.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

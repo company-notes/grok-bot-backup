@@ -85,5 +85,93 @@ class MemoryFreshnessTests(unittest.TestCase):
             self.assertIn("file modified (UTC): 2026-10-21T09:00:00+00:00", output)
 
 
+    def test_empty_jsonl_warns_and_strict_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            (export / "01-assistants/Test Agent/memory/memory-agent.jsonl").write_text("")
+            code, output = self._run(export, data, False)
+            self.assertEqual(code, 0)
+            self.assertIn("WARN Test Agent", output)
+            self.assertIn("zero memory facts", output)
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("FAIL Test Agent", output)
+
+    def test_empty_jsonl_with_recent_explicit_no_memory_confirmation_passes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            directory = export / "01-assistants/Test Agent/memory"
+            (directory / "memory-agent.jsonl").write_text("")
+            (directory / "memory-status.json").write_text(json.dumps({
+                "status": "no_memories",
+                "agent_id": AGENT_ID,
+                "checked_at_utc": "2026-10-22T08:00:00Z",
+            }))
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 0)
+            self.assertIn("explicitly declared no memories", output)
+            self.assertNotIn("WARN", output)
+
+    def test_empty_marker_requires_correct_id_and_recent_check(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            directory = export / "01-assistants/Test Agent/memory"
+            (directory / "memory-agent.jsonl").write_text("")
+            marker = directory / "memory-status.json"
+            marker.write_text(json.dumps({
+                "status": "no_memories",
+                "agent_id": "other-agent",
+                "checked_at_utc": "2026-10-22T08:00:00Z",
+            }))
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("invalid memory-status.json", output)
+            marker.write_text(json.dumps({
+                "status": "no_memories",
+                "agent_id": AGENT_ID,
+                "checked_at_utc": "2026-10-17T08:00:00Z",
+            }))
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("declaration older than 2 days", output)
+
+    def test_group_chat_without_memory_is_explicitly_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            group_id = "00000000-0000-0000-0000-000000000002"
+            stats_path = export / "99-backup-program/conversation-stats.json"
+            stats = json.loads(stats_path.read_text())
+            group_conv = export / "02-groups" / "Company group" / "conversations"
+            group_conv.mkdir(parents=True)
+            stats["agents"].append({
+                "agent_id": group_id, "name": "Company group", "kind": "group",
+                "conv_dir": str(group_conv.relative_to(export)),
+                "messages": 0, "first": None, "last": None,
+            })
+            stats_path.write_text(json.dumps(stats))
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 0)
+            self.assertIn("SKIP MEMORY Company group: group chat", output)
+
+    def test_invalid_memory_jsonl_cannot_pass_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            file = export / "01-assistants/Test Agent/memory/memory-agent.jsonl"
+            file.write_text('{"date":"2026-10-22", "fact":""}\\n')
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("malformed memory records", output)
+
+    def test_empty_shared_memory_export_does_not_pass_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            export, data = self._fixture(Path(temp), age_days=1)
+            shared = export / "00-shared" / "memory"
+            shared.mkdir(parents=True)
+            (shared / "memory-user.jsonl").write_text("")
+            code, output = self._run(export, data, True)
+            self.assertEqual(code, 1)
+            self.assertIn("FAIL shared user memory", output)
+
+
 if __name__ == "__main__":
     unittest.main()

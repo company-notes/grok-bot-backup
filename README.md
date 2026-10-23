@@ -105,7 +105,27 @@ Use `tier` of `profile`, `log`, or `note`, with `scope` and `source` reflecting 
 
 Copy this request to **each** assistant (adjust for its tool access):
 
-> Use your available RecallMemory interface to retrieve all memory facts you are permitted to see, covering every available tier and scope, including older records. Export the complete facts—not summaries—to valid UTF-8 JSONL, one JSON object per line, under `$MEMORY_DROP/agents/<your-agent-uuid>/`. Include `date`, `tier`, `scope`, `source`, and `fact`. If you can export shared user memory, write it to `$MEMORY_DROP/shared-user/memory-user.jsonl`. Report any tool limitations and the number of facts exported. Do not modify the source memories.
+> Use your available RecallMemory interface to retrieve all memory facts you are permitted to see, covering every available tier and scope, including older records. Export the complete facts—not summaries—to valid UTF-8 JSONL, one JSON object per line, under `$MEMORY_DROP/agents/<your-agent-uuid>/`. Include `date`, `tier`, `scope`, `source`, and a nonempty `fact`. If you can export shared user memory, write it to `$MEMORY_DROP/shared-user/memory-user.jsonl`. Report tool limitations and the number of facts exported. Only if you actually searched and found no facts, create the documented `memory-status.json` confirmation with the correct ID and UTC check time. Do not modify source memories or claim a completed export without checking.
+
+### Confirming an assistant with genuinely no memory
+
+An **empty JSONL file is not proof that the memory export ran**. If all exported JSONL files for an assistant contain zero valid `fact` records, verification now prints **WARN**; `--strict` prints **FAIL**. Invalid JSONL or missing/blank `fact` values are also reported.
+
+If the assistant has **actually checked every accessible memory tier and found zero facts**, write an additional `memory-status.json` beside its JSONL files. For example:
+
+```json
+{
+  "status": "no_memories",
+  "agent_id": "00000000-0000-0000-0000-000000000001",
+  "checked_at_utc": "2026-10-23T00:00:00Z"
+}
+```
+
+The `agent_id` must match that assistant's UUID. `checked_at_utc` must be the genuine, timezone-aware UTC timestamp of the completed check, within `MEMORY_MAX_AGE_DAYS` of the backup (default: two days). The exporter preserves this separate file and the verifier checks the declaration. **Only use it after explicitly confirming there are no retrievable memories; never generate a declaration just to make `--strict` pass.** If facts are available, export them instead.
+
+Shared user memory may use the same mechanism under `shared-user/memory-status.json`, substituting `"scope": "user"` for `agent_id`. Shared user memory is optional when not accessible, but a *present yet empty* shared memory JSONL file is not considered a successful export without the declaration.
+
+**Group chats are not individual assistants.** A group does not require a separate RecallMemory export to pass `--strict`, and the verifier prints `SKIP MEMORY` to make that exception clear. If group memory files are actually provided, they are checked for valid facts, freshness, and empty-export declarations as well. Individual assistants participating in a group still require their own memory exports.
 
 **Freshness matters.** The verifier uses the JSONL files' modification times as the export-time proxy; the raw files are copied with their timestamps preserved. An old `memory-drop` can make a backup look complete even though new memories are missing. Do not reset timestamps to pretend old exports are new.
 
@@ -125,7 +145,7 @@ MEMORY_MAX_AGE_DAYS=2 bin/verify-export.sh /path/to/export --strict
 bin/verify-export.sh /path/to/export --date YYYY-MM-DD
 ```
 
-The verifier prints each available assistant's memory-file last-modified timestamp explicitly in **UTC**, and the age relative to the backup snapshot. File modification time is only a proxy for when the memory was exported, not proof that the retrieved content is complete. It lists missing drops by assistant name. A missing/stale drop is a **WARN** (exit 0 if other checks pass); with `--strict` it becomes **FAIL** (nonzero exit). This check does not prove that all memories have been retrieved—it detects absent or aging export files.
+The verifier prints each available assistant's memory-file last-modified timestamp explicitly in **UTC**, and the age relative to the backup snapshot. File modification time is only a proxy for when the memory was exported, not proof that the retrieved content is complete. It lists missing drops by assistant name. A missing, stale, malformed, or unconfirmed empty drop is a **WARN** (exit 0 if other checks pass); with `--strict` it becomes **FAIL** (nonzero exit). Groups are exempt from mandatory assistant-memory export; a genuinely empty export needs the explicit, recent `memory-status.json` confirmation described above. This check does not prove that all memories have been retrieved—it detects absent or aging export files.
 
 Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `platform-memory/memory-index.md` for included data, exclusions, and RecallMemory status. The readable export has `memory-index.md`, `conversation-index.md`, and `workspace-copy.json`. Verification compares conversation messages against the live search index and checks exported notes and memory drops; check the source before assuming universal compatibility.
 

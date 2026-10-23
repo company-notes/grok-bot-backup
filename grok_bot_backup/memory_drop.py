@@ -255,6 +255,10 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
 
 Frozen local copies remain under ../shared-agent-memory/ (Virtual Office export) or shared/user-memory/ (raw Grok export).
 """)
+    elif shared_status.is_file():
+        write(shared_dir / "README.md",
+              "# Shared memory\n\nNo memory facts were supplied. See memory-status.json for "
+              "the explicit empty-memory declaration; verify its checked_at_utc timestamp.\n")
     else:
         write(shared_dir / "README.md", "# Shared memory\n\nnot exported\n")
 

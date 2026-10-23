@@ -112,6 +112,11 @@ def render_markdown(rows: list[dict], title: str, intro: str) -> str:
     return "\n".join(parts)
 
 
+def _status_file(directory: pathlib.Path) -> pathlib.Path:
+    """Optional explicit attestation for an intentionally empty memory export."""
+    return directory / "memory-status.json"
+
+
 def _agent_drop_files(agent_dir: pathlib.Path) -> list[pathlib.Path]:
     if not agent_dir.is_dir():
         return []
@@ -165,7 +170,8 @@ def scan(root: pathlib.Path | None = None) -> dict:
             "id": aid,
             "name": label,
             "required": required,
-            "dropped": bool(files),
+            "dropped": bool(files) or _status_file(d).is_file(),
+            "explicit_empty": _status_file(d).is_file(),
             "files": counts,
         })
     # unexpected ids
@@ -174,7 +180,7 @@ def scan(root: pathlib.Path | None = None) -> dict:
     known = {a[0] for a in EXPECTED_AGENTS}
     if agents_root.is_dir():
         for d in sorted(agents_root.iterdir()):
-            if d.is_dir() and d.name not in known and _agent_drop_files(d):
+            if d.is_dir() and d.name not in known and (_agent_drop_files(d) or _status_file(d).is_file()):
                 extra.append(d.name)
     return {
         "drop_root": str(root),
@@ -207,6 +213,8 @@ def _index_markdown(status: dict) -> str:
             lines.append(f"- {a['name']}{tag}: not exported")
         else:
             bits = ", ".join(f"{k} {n} records" for k, n in a["files"].items())
+            if a["explicit_empty"]:
+                bits += (", " if bits else "") + "explicit empty-memory declaration (verification required)"
             lines.append(f"- {a['name']}{tag}: exported ({bits})")
     if status["extra_ids"]:
         lines += ["", "## Additional drops not in the configured roster", ""]
@@ -230,6 +238,9 @@ def apply_tree(dest: pathlib.Path, id_to_name: dict[str, str] | None = None) -> 
     if shared_src.is_file():
         rows = load_jsonl(shared_src)
         _copy_jsonl(shared_src, shared_dir / "memory-user.jsonl")
+        shared_status = _status_file(root / "shared-user")
+        if shared_status.is_file():
+            _copy_jsonl(shared_status, shared_dir / "memory-status.json")
         write(shared_dir / "shared-memory.md", render_markdown(
             rows,
             "Shared memory",
@@ -276,6 +287,9 @@ def _write_agent(dest, agent_id, label, drop_dir, id_to_name, dropped: bool) -> 
                 write(note, f"# Platform memory\n\nnot exported\n\n({label}, `{agent_id}`)\n")
         return
     files = _agent_drop_files(drop_dir)
+    status = _status_file(drop_dir)
+    if status.is_file():
+        _copy_jsonl(status, mem / "memory-status.json")
     rows: list[dict] = []
     for src in files:
         _copy_jsonl(src, mem / src.name)
@@ -293,22 +307,28 @@ def apply_grok(dest: pathlib.Path) -> dict:
     status = apply_tree(dest / "platform-memory", id_to_name=None)
     root = drop_root()
     shared_src = root / "shared-user" / "memory-user.jsonl"
-    if shared_src.is_file():
+    if shared_src.is_file() or _status_file(root / "shared-user").is_file():
         target = dest / "shared" / "platform-memory"
         target.mkdir(parents=True, exist_ok=True)
-        _copy_jsonl(shared_src, target / "memory-user.jsonl")
+        if shared_src.is_file():
+            _copy_jsonl(shared_src, target / "memory-user.jsonl")
+        if _status_file(root / "shared-user").is_file():
+            _copy_jsonl(_status_file(root / "shared-user"), target / "memory-status.json")
     agents_root = root / "agents"
     if agents_root.is_dir():
         for d in agents_root.iterdir():
             if not d.is_dir():
                 continue
             files = _agent_drop_files(d)
-            if not files:
+            status = _status_file(d)
+            if not files and not status.is_file():
                 continue
             out = dest / "agents" / d.name / "platform-memory"
             out.mkdir(parents=True, exist_ok=True)
             for src in files:
                 _copy_jsonl(src, out / src.name)
+            if status.is_file():
+                _copy_jsonl(status, out / "memory-status.json")
     return status
 
 

@@ -189,9 +189,9 @@ class MemoryFreshnessTests(unittest.TestCase):
                 "status": "no_memories", "scope": "user",
                 "checked_at_utc": "2026-10-22T08:00:00Z",
             }))
-            with patch.object(memory_drop, "drop_root", return_value=source), \\
+            with patch.object(memory_drop, "drop_root", return_value=source), \
                  patch.object(memory_drop, "EXPECTED_AGENTS",
-                              [(AGENT_ID, "Test Agent", True)]), \\
+                              [(AGENT_ID, "Test Agent", True)]), \
                  patch.object(memory_drop, "AGENT_DATA", base / "no-agent-data"):
                 readable = base / "virtual-office"
                 (readable / "01-assistants/Test Agent").mkdir(parents=True)

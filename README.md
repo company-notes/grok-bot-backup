@@ -1,5 +1,11 @@
 # Grok Bot Backup
 
+## Easiest way: import the backup Bot
+
+**Don't want to set up the scripts yourself?** [**Import the ready-made Grok Bot backup assistant**](https://x.ai/bot/LvdHazZLidr0S3JJAdr8e).
+
+After you import it, the Bot will guide you through the backup setup, asking **where to save your backups** (Google Drive or locally) and **how often to back up**. If you prefer to run or customize the source code yourself, follow the instructions below.
+
 Unofficial, open-source export utilities for **Grok Bot** shared-box environments. Keep as much accessible data as possible in two forms: raw files and human-readable Markdown for handover to another AI assistant or a person.
 
 **Status:** Successfully tested from a fresh clone on a real Grok Bot shared box (commit `667bdda`): raw and human-readable exports, complete available agent files, matching conversation counts, exclusion safeguards, and strict memory-file freshness checks all passed. This does not prove that the platform exposed every memory or guarantee compatibility with other environments. **Verify backups on your own box before relying on them.** This project is not a one-click restore tool.

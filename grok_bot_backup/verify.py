@@ -28,7 +28,7 @@ def main() -> None:
     ap.add_argument("--archive")
     ap.add_argument("--date", help="Optional day to require at least one message (YYYY-MM-DD)")
     ap.add_argument("--strict", action="store_true",
-                    help="Treat missing or stale memory drops as verification failures")
+                    help="Fail if memory drops are missing, empty without attestation, malformed or stale")
     a = ap.parse_args()
     root = pathlib.Path(a.export_dir)
     ok = True
@@ -114,43 +114,125 @@ def main() -> None:
         check("not exported" in content or "exported" in content,
               "memory index includes export status")
 
-    def memory_files(agent):
-        if (root / "conversations").exists():
-            return sorted((root / "agents" / agent["agent_id"] / "platform-memory").glob("*.jsonl"))
-        conv_dir = root / agent["conv_dir"]
-        return sorted((conv_dir.parent / "memory").glob("*.jsonl"))
-
     cutoff_seconds = cutoff / 1000
+
+    def export_memory_dir(agent):
+        if (root / "conversations").exists():
+            return root / "agents" / agent["agent_id"] / "platform-memory"
+        return (root / agent["conv_dir"]).parent / "memory"
+
+    def memory_age(timestamp, label):
+        age = (cutoff_seconds - timestamp) / 86400
+        stamp = datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
+        print(f"MEMORY {label}: file modified (UTC): {stamp}; age at backup {age:.2f} days")
+        if age > max_age_days:
+            warn(f"{label}: memory export older than {max_age_days:g} days ({age:.2f} days)")
+        if age < -0.01:
+            warn(f"{label}: memory export timestamp is later than backup cutoff")
+
+    def confirm_explicit_empty(path, label, agent_id=None):
+        """A recent agent declaration is needed to distinguish zero facts from no export."""
+        try:
+            declaration = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(declaration, dict) or declaration.get("status") != "no_memories":
+                raise ValueError("expected status: no_memories")
+            if agent_id is not None:
+                if declaration.get("agent_id") != agent_id:
+                    raise ValueError("agent_id does not match the assistant")
+            elif declaration.get("scope") != "user":
+                raise ValueError("shared-memory declaration requires scope: user")
+            checked = declaration.get("checked_at_utc")
+            if not isinstance(checked, str):
+                raise ValueError("missing checked_at_utc")
+            checked_dt = datetime.fromisoformat(checked.replace("Z", "+00:00"))
+            if checked_dt.tzinfo is None:
+                raise ValueError("checked_at_utc must contain a timezone")
+            checked_ts = checked_dt.timestamp()
+        except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            warn(f"{label}: invalid memory-status.json ({exc})")
+            return
+        age = (cutoff_seconds - checked_ts) / 86400
+        print(f"MEMORY {label}: explicitly declared no memories; checked at "
+              f"{checked_dt.astimezone(timezone.utc).isoformat()} (UTC); "
+              f"age at backup {age:.2f} days")
+        if age > max_age_days:
+            warn(f"{label}: no-memories declaration older than {max_age_days:g} days")
+        if age < -0.01:
+            warn(f"{label}: no-memories declaration is later than backup cutoff")
+
+    def verify_memory_set(directory, label, agent_id=None):
+        files = sorted(directory.glob("*.jsonl"))
+        status = directory / "memory-status.json"
+        if not files and not status.is_file():
+            warn(f"{label}: no platform memory export found")
+            return
+
+        facts = 0
+        invalid = 0
+        for file in files:
+            for line in file.read_text(encoding="utf-8", errors="replace").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                    if not isinstance(record, dict) or not str(record.get("fact") or "").strip():
+                        invalid += 1
+                    else:
+                        facts += 1
+                except json.JSONDecodeError:
+                    invalid += 1
+            age = (cutoff_seconds - file.stat().st_mtime) / 86400
+            print(f"MEMORY {label}: {file.name}, file modified (UTC): "
+                  f"{datetime.fromtimestamp(file.stat().st_mtime, timezone.utc).isoformat()}, "
+                  f"age at backup {age:.2f} days")
+            if age > max_age_days:
+                warn(f"{label}: {file.name} older than {max_age_days:g} days ({age:.2f} days)")
+            if age < -0.01:
+                warn(f"{label}: {file.name} timestamp is later than backup cutoff")
+
+        if invalid:
+            warn(f"{label}: {invalid} malformed memory records (missing a nonempty fact)")
+        print(f"MEMORY {label}: {facts} nonempty fact records in {len(files)} JSONL files")
+        if facts == 0:
+            if status.is_file():
+                confirm_explicit_empty(status, label, agent_id)
+            else:
+                warn(f"{label}: zero memory facts; an empty file is not proof of a completed export "
+                     "(supply a recent memory-status.json only after checking)")
+        elif status.is_file():
+            warn(f"{label}: memory-status.json declares no memories but JSONL contains {facts} facts")
+
     for agent in st["agents"]:
+        name = agent["name"]
+        if agent.get("kind") == "group":
+            print(f"SKIP MEMORY {name}: group chat is not an individual assistant; "
+                  "no separate memory drop is required")
+            continue
         if agent.get("kind") != "agent":
             continue
-        name = agent["name"]
-        files = memory_files(agent)
-        if not files:
-            warn(f"{name} ({agent['agent_id']}): no platform memory drop found")
-            continue
-        ages = []
-        for mem_file in files:
-            modified = mem_file.stat().st_mtime
-            age = (cutoff_seconds - modified) / 86400
-            ages.append(age)
-            stamp = datetime.fromtimestamp(modified, timezone.utc).isoformat()
-            print(f"MEMORY {name}: {mem_file.name}, file modified (UTC): {stamp}, "
-                  f"age at backup {age:.2f} days")
-        if any(age > max_age_days for age in ages):
-            warn(f"{name}: memory drop older than {max_age_days:g} days "
-                 f"(oldest {max(ages):.2f} days)")
-        if any(age < -0.01 for age in ages):
-            warn(f"{name}: memory drop timestamp is later than backup cutoff")
+        verify_memory_set(export_memory_dir(agent), f"{name} ({agent['agent_id']})",
+                          agent["agent_id"])
+
+    # Shared user memory is optional when unavailable, but cannot be silently
+    # counted as exported if it is present as a zero-record file.
+    shared_memory = (root / "shared" / "platform-memory" if
+                     (root / "conversations").exists() else root / "00-shared" / "memory")
+    if shared_memory.is_dir() and list(shared_memory.glob("*.jsonl")):
+        verify_memory_set(shared_memory, "shared user memory")
 
     # Compare copied platform drops to the input set when the live source is
     # still available. Do not use current source mtimes to assess backup age.
     drop = pathlib.Path(os.environ.get(
         "MEMORY_DROP", str(pathlib.Path(os.environ.get("WORKSPACE", "/workspace")) / "exports" / "memory-drop")))
     exported_sha = {sha(p) for p in root.rglob("*.jsonl") if p.is_file()}
+    exported_status_sha = {sha(p) for p in root.rglob("memory-status.json") if p.is_file()}
     shared = drop / "shared-user" / "memory-user.jsonl"
     if shared.is_file():
         check(sha(shared) in exported_sha, "shared memory-user.jsonl copied into export")
+    shared_status = drop / "shared-user" / "memory-status.json"
+    if shared_status.is_file():
+        check(sha(shared_status) in exported_status_sha,
+              "shared memory-status.json copied into export")
     if (drop / "agents").is_dir():
         for agent_dir in (drop / "agents").iterdir():
             if not agent_dir.is_dir():
@@ -159,6 +241,10 @@ def main() -> None:
                        if p.is_file() and sha(p) not in exported_sha]
             check(not missing, f"memory drop copied for {agent_dir.name}"
                   + ("" if not missing else " missing " + ",".join(missing)))
+            status_file = agent_dir / "memory-status.json"
+            if status_file.is_file():
+                check(sha(status_file) in exported_status_sha,
+                      f"memory-status.json copied for {agent_dir.name}")
 
     print("RESULT", "OK" if ok else "FAILED")
     raise SystemExit(0 if ok else 1)

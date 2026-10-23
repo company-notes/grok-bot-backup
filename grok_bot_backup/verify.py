@@ -169,6 +169,7 @@ def main() -> None:
 
         facts = 0
         invalid = 0
+        file_ages = []
         for file in files:
             for line in file.read_text(encoding="utf-8", errors="replace").splitlines():
                 if not line.strip():
@@ -185,10 +186,17 @@ def main() -> None:
             print(f"MEMORY {label}: {file.name}, file modified (UTC): "
                   f"{datetime.fromtimestamp(file.stat().st_mtime, timezone.utc).isoformat()}, "
                   f"age at backup {age:.2f} days")
-            if age > max_age_days:
-                warn(f"{label}: {file.name} older than {max_age_days:g} days ({age:.2f} days)")
-            if age < -0.01:
-                warn(f"{label}: {file.name} timestamp is later than backup cutoff")
+            file_ages.append((file.name, age))
+
+        # If there are no records, file timestamps are not proof of a completed
+        # empty export. Use the explicit checked_at_utc declaration instead.
+        # Otherwise check freshness on the actual nonempty JSONL source files.
+        if facts:
+            for filename, age in file_ages:
+                if age > max_age_days:
+                    warn(f"{label}: {filename} older than {max_age_days:g} days ({age:.2f} days)")
+                if age < -0.01:
+                    warn(f"{label}: {filename} timestamp is later than backup cutoff")
 
         if invalid:
             warn(f"{label}: {invalid} malformed memory records (missing a nonempty fact)")

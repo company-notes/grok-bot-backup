@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Docs: recommend a fixed parent folder with one `YYYY-MM-DD` subfolder per backup run when storing archives on Google Drive or other remote storage.
+
+
 ## ZIP default — 2026-10-23
 
 - Both raw and Virtual Office exports now produce Windows-friendly `.zip` archives using Python's standard library, with ZIP64 and UTF-8 support.

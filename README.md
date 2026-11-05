@@ -26,6 +26,17 @@ Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each comma
 
 **Disk-space planning:** there is no fixed minimum. Size depends on your source data. Allow room for the uncompressed export directory **and** its compressed archive, plus headroom for other agents using the box. If the disk is limited, consider excluding large regenerable directories or choosing an external `OUT_ROOT`.
 
+### Storing backups
+
+The export commands only write to the local `OUT_ROOT`. They do **not** upload anything to Google Drive or any other cloud storage.
+
+If you copy backups to Google Drive (or a similar remote folder):
+
+- Pick one fixed parent folder for all backups.
+- For each backup run, create a dated subfolder named `YYYY-MM-DD` (the run date in your own time zone) and put that run's `.zip` archives, verification reports and checksum files in it.
+- Keep older dated folders as they are. Do not mix files from different runs in the same level.
+- If a Grok Bot assistant or routine does the upload, write this convention into the assistant's storage settings or the routine prompt so every run follows it.
+
 ### Optional assistant roster configuration
 
 **No configuration file is required for a first run.** Leave `config.json` absent: the exporter discovers actual assistant IDs from the accessible platform data and verifies their available conversation and memory files.

@@ -60,6 +60,9 @@ python3 -c 'from grok_bot_backup.archive import split_size_from_env; split_size_
   || die "invalid ARCHIVE_SPLIT_SIZE: ${ARCHIVE_SPLIT_SIZE:-}"
 python3 -c 'from grok_bot_backup.home import include_home; include_home()' \
   || die "invalid INCLUDE_HOME: ${INCLUDE_HOME:-}"
+# INCLUDE_HOME=1 with a missing BOX_HOME is an error, never a silent skip.
+python3 -c 'from grok_bot_backup.home import require_home_source; require_home_source()' \
+  || die "home directory not found: ${BOX_HOME:-/home/box} (set BOX_HOME, or INCLUDE_HOME=0 to skip it)"
 echo "WARNING: Unencrypted full-data backup; credentials and secrets may be included." >&2
 echo "WORKSPACE=$WORKSPACE OUT_ROOT=$OUT_ROOT BACKUP_EXCLUDE_PATHS=${BACKUP_EXCLUDE_PATHS:-}" >&2
 mkdir -p "$DEST"/{agents,shared,workspace,meta}

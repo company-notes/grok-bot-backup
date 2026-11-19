@@ -24,7 +24,7 @@ from .common import (
 from .archive import SPLIT_ENV, create_zip_packs, parse_size, print_result
 from .program import snapshot_program
 from .workspace import copy_workspace
-from .home import box_home, copy_home, include_home
+from .home import box_home, copy_home, include_home, require_home_source
 
 STAMP = utc_stamp()
 DEST = OUT_ROOT / f"virtual-office-{STAMP}"
@@ -195,7 +195,8 @@ def main() -> None:
     try:
         split_size = parse_size(args.split_size)
         include_home()
-    except ValueError as exc:
+        require_home_source()
+    except (ValueError, FileNotFoundError) as exc:
         parser.error(str(exc))
     warn_deprecated_private_args(args)
     if args.exclude:

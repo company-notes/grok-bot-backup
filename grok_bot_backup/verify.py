@@ -108,6 +108,14 @@ def verify_archive(archive_path: pathlib.Path, root: pathlib.Path, check) -> Non
         check(False, f"cannot read archive: {exc}")
 
 
+def _sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fp:
+        while chunk := fp.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def verify_home(root: pathlib.Path, check) -> None:
     """Compare the copied home directory with its copy report (and the live home if present)."""
     report_path = next((p for p in (root / "meta" / "home-copy.json", root / "home-copy.json")
@@ -116,24 +124,49 @@ def verify_home(root: pathlib.Path, check) -> None:
         print("SKIP HOME: no home-copy.json (older export)")
         return
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    if not report.get("enabled") or report.get("note"):
+    if not report.get("enabled"):
         print(f"SKIP HOME: {report.get('note', 'INCLUDE_HOME=0')}")
+        return
+    # INCLUDE_HOME=1 must always produce a copy; older exports wrote a note and
+    # skipped silently when BOX_HOME was missing.
+    check(not report.get("note") and "files" in report,
+          "home directory copied (INCLUDE_HOME=1)"
+          + (f": {report['note']}" if report.get("note") else ""))
+    if report.get("note") or "files" not in report:
         return
     copied = next((p for p in (root / "home", root / "00-shared" / "box-home") if p.is_dir()), None)
     check(copied is not None, "home directory copy present")
     if copied is None:
         return
-    files = links = 0
+    files = links = size = 0
+    present: dict[str, pathlib.Path] = {}
     for parent, dirs, names in os.walk(copied):
         for name in dirs + names:
             path = pathlib.Path(parent) / name
             if path.is_symlink():
                 links += 1
-            elif name in names:
+            elif name in names and path.is_file():
                 files += 1
-    check(files == report["files"] and links == report["symlinks"],
-          f"home copy matches report ({files} files / {links} links; report "
-          f"{report['files']} / {report['symlinks']})")
+                size += path.stat().st_size
+                present[path.relative_to(copied).as_posix()] = path
+    same_bytes = "bytes" not in report or size == report["bytes"]
+    check(files == report["files"] and links == report["symlinks"] and same_bytes,
+          f"home copy matches report ({files} files / {links} links / {size} bytes; report "
+          f"{report['files']} / {report['symlinks']} / {report.get('bytes', '?')})")
+    hashes = report.get("file_hashes")
+    if hashes is not None:
+        bad = []
+        for rel_path, want in hashes.items():
+            path = present.get(rel_path)
+            if path is None:
+                bad.append(f"{rel_path} (missing)")
+            elif path.stat().st_size != want["bytes"] or _sha256(path) != want["sha256"]:
+                bad.append(f"{rel_path} (content differs)")
+        extra = [f"{p} (not in report)" for p in sorted(set(present) - set(hashes))]
+        problems = bad + extra
+        check(not problems, f"home files match recorded size and SHA-256 "
+                            f"({len(hashes) - len(bad)}/{len(hashes)})"
+              + ("" if not problems else " bad: " + ", ".join(problems[:10])))
     skipped = report.get("skipped", [])
     unreadable = report.get("unreadable", [])
     print(f"INFO HOME {report['home']}: {len(skipped)} omitted, {len(unreadable)} unreadable "

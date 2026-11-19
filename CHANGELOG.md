@@ -11,6 +11,11 @@
   - Virtual Office: a larger archive is written as several complete ZIP packs (`NAME-1ofN.zip` …) that each open on their own and merge into one tree; a single file above the limit gets its own split-ZIP pack.
   - Plain-text `NAME-RESTORE.txt` and `NAME-SHA256SUMS.txt` (plus `NAME-CONTENTS.tsv` for packs) are written next to divided output.
   - `python3 -m grok_bot_backup.archive join NAME.zip OUT.zip` rebuilds an ordinary ZIP from a split archive.
+- **Review fixes (PR #2):**
+  - `INCLUDE_HOME=1` with a missing or non-directory `BOX_HOME` now stops both exporters with an error (it used to skip silently and still verify as `RESULT OK`); `INCLUDE_HOME=0` remains the way to skip. The verifier fails old reports that recorded a missing home directory.
+  - Home copy integrity: each file is re-read and matched against the source bytes (size and SHA-256); write errors, mismatches, or a finished tree whose file/link/byte totals differ stop the backup. `home-copy.json` records `file_hashes`, which the verifier rechecks (missing, changed or extra files fail).
+  - Earlier backups are recognised by split volume (`.z01` … `.z99`, `.z100` …, `.001`-style parts) and sidecar (`-RESTORE.txt`, `-SHA256SUMS.txt`, `-CONTENTS.tsv`) as well as folder and archive, so WORKSPACE / HOME copies never re-include them.
+  - `.gitignore` excludes every generated backup output (folders, archives, volumes, parts, sidecars, memory drops) so credential-bearing backups cannot be committed to this public repository by accident.
 - Verifier: `--archive` accepts split ZIPs and Virtual Office packs, checks every part, compares archive members with the export folder, and checks `SHA256SUMS` when present.
 - Docs: recommend a fixed parent folder with one `YYYY-MM-DD` subfolder per backup run when storing archives on Google Drive or other remote storage.
 

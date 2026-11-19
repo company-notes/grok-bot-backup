@@ -23,9 +23,20 @@ Environment:
 
 Symbolic links are copied as links and never followed. Unreadable files and
 folders are listed in the report and skipped; they do not stop the backup.
+
+Failures (the backup stops with an error instead of reporting success):
+  * INCLUDE_HOME=1 but BOX_HOME does not exist or is not a directory
+    (INCLUDE_HOME=0 is the only way to skip the home directory),
+  * a file cannot be written to the backup, or the written copy does not match
+    the bytes read from the source (size and SHA-256 are checked per file),
+  * the finished copy does not match the counts and bytes of what was copied.
+
+Every copied file's size and SHA-256 are recorded in the report
+(``file_hashes``) so the verifier can recheck the copy later.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -53,6 +64,25 @@ def include_home() -> bool:
 
 def box_home() -> Path:
     return Path(os.environ.get("BOX_HOME") or DEFAULT_HOME).expanduser()
+
+
+class HomeCopyError(RuntimeError):
+    """The home directory could not be copied completely and correctly."""
+
+
+def require_home_source(home: Path | None = None) -> None:
+    """Fail early when INCLUDE_HOME=1 but the home directory is missing.
+
+    INCLUDE_HOME=0 is the only supported way to skip the home directory; a
+    missing BOX_HOME is a configuration error, never a silent skip.
+    """
+    if not include_home():
+        return
+    home = box_home() if home is None else home
+    if not home.is_dir():
+        raise FileNotFoundError(
+            f"INCLUDE_HOME=1 but the home directory does not exist or is not a directory: {home} "
+            "(set BOX_HOME to the right path, or INCLUDE_HOME=0 to skip it)")
 
 
 def _paths(variable: str) -> list[str]:
@@ -132,9 +162,7 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
     if not report["enabled"]:
         report["note"] = "INCLUDE_HOME=0: home directory not copied"
         return report
-    if not home.is_dir():
-        report["note"] = "home directory not found; nothing copied"
-        return report
+    require_home_source(home)
 
     src = home.resolve()
     output = out_root.resolve()
@@ -148,6 +176,9 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
     include_bulky = report["include_bulky_dirs"]
     skipped: list[dict] = []
     unreadable: list[dict] = []
+    failures: list[dict] = []
+    changed: list[dict] = []
+    hashes: dict[str, dict] = {}
     counts = {"files": 0, "symlinks": 0, "directories": 0, "bytes": 0}
     top: dict[str, dict] = {}
 
@@ -189,7 +220,8 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
             skipped.append({"path": rel(path), "reason": why, "bytes": _tree_bytes(path)})
             return
         try:
-            mode = path.lstat().st_mode
+            info = path.lstat()
+            mode, mode_size = info.st_mode, info.st_size
         except OSError as exc:
             unreadable.append({"path": rel(path), "error": exc.strerror or str(exc)})
             return
@@ -215,16 +247,41 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
                 pass
         elif stat.S_ISREG(mode):
             try:
-                shutil.copy2(path, target, follow_symlinks=False)
+                source = open(path, "rb")
             except OSError as exc:
-                if target.exists():
-                    target.unlink()
                 unreadable.append({"path": rel(path), "error": exc.strerror or str(exc)})
                 return
-            size = target.stat().st_size
+            digest = hashlib.sha256()
+            read = 0
+            try:
+                with source, open(target, "wb") as out:
+                    while chunk := source.read(1 << 20):
+                        digest.update(chunk)
+                        read += len(chunk)
+                        out.write(chunk)
+                shutil.copystat(path, target, follow_symlinks=False)
+            except OSError as exc:
+                failures.append({"path": rel(path), "error": "copy failed: " + (exc.strerror or str(exc))})
+                return
+            expected = digest.hexdigest()
+            try:
+                written = target.stat().st_size
+                actual = sha256_file(target)
+            except OSError as exc:
+                failures.append({"path": rel(path), "error": "cannot re-read copy: " + (exc.strerror or str(exc))})
+                return
+            if written != read or actual != expected:
+                failures.append({"path": rel(path), "error":
+                                 f"copy does not match source ({written}/{read} bytes, sha256 differs: "
+                                 f"{actual != expected})"})
+                return
+            if read != mode_size:
+                # A live file grew or shrank while it was read; the copy holds what was read.
+                changed.append({"path": rel(path), "size_before": mode_size, "bytes_copied": read})
+            hashes[rel(path)] = {"bytes": read, "sha256": expected}
             counts["files"] += 1
-            counts["bytes"] += size
-            note_top(path, "file", size)
+            counts["bytes"] += read
+            note_top(path, "file", read)
         else:
             skipped.append({"path": rel(path), "reason": "special file (socket, pipe or device)",
                             "bytes": 0})
@@ -237,6 +294,18 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
     for child in children:
         copy_entry(Path(child.path), dst / child.name)
 
+    # Whole-tree check: the destination must hold exactly what was copied.
+    found = audit_copy(dst)
+    if found["files"] != counts["files"] or found["symlinks"] != counts["symlinks"] \
+            or found["bytes"] != counts["bytes"]:
+        failures.append({"path": ".", "error":
+                         f"copied tree has {found['files']} files / {found['symlinks']} links / "
+                         f"{found['bytes']} bytes; expected {counts['files']} / {counts['symlinks']} / "
+                         f"{counts['bytes']}"})
+    if failures:
+        lines = "; ".join(f"{f['path']}: {f['error']}" for f in failures[:10])
+        raise HomeCopyError(f"home directory copy failed integrity checks ({len(failures)}): {lines}")
+
     report.update({
         "home_resolved": str(src),
         "default_exclusions": defaults,
@@ -245,9 +314,35 @@ def copy_home(home: Path, dst: Path, out_root: Path, workspace: Path, agent_data
         "included_top_level": sorted(top.values(), key=lambda e: e["name"]),
         "skipped": sorted(skipped, key=lambda e: e["path"]),
         "unreadable": sorted(unreadable, key=lambda e: e["path"]),
+        "changed_during_copy": sorted(changed, key=lambda e: e["path"]),
+        "integrity": "every copied file re-read and matched by size and SHA-256",
+        "file_hashes": dict(sorted(hashes.items())),
         **counts,
     })
     return report
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fp:
+        while chunk := fp.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def audit_copy(root: Path) -> dict:
+    """Count regular files, symlinks and file bytes under `root` without following links."""
+    found = {"files": 0, "symlinks": 0, "bytes": 0}
+    for parent, dirs, names in os.walk(root):
+        for name in dirs + names:
+            path = os.path.join(parent, name)
+            info = os.lstat(path)
+            if stat.S_ISLNK(info.st_mode):
+                found["symlinks"] += 1
+            elif stat.S_ISREG(info.st_mode):
+                found["files"] += 1
+                found["bytes"] += info.st_size
+    return found
 
 
 def main() -> None:
@@ -256,7 +351,10 @@ def main() -> None:
     if len(sys.argv) != 4:
         raise SystemExit("usage: python -m grok_bot_backup.home <dst> <out_root> <report.json>")
     dst, out_root, report_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
-    result = copy_home(box_home(), dst, out_root, WORKSPACE, AGENT_DATA)
+    try:
+        result = copy_home(box_home(), dst, out_root, WORKSPACE, AGENT_DATA)
+    except (OSError, ValueError, HomeCopyError) as exc:
+        raise SystemExit(f"ERROR: {exc}") from exc
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if not result["enabled"] or "note" in result:

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Optional per-file size limit, `ARCHIVE_SPLIT_SIZE` (for example `90MiB` for an upload tool with a 100 MB cap). Unset keeps the previous single-ZIP output.
+  - Raw export: a larger archive is written as a standard split ZIP (`NAME.z01` … `NAME.zip`, APPNOTE §8.5 / Info-ZIP `zip -s` format), implemented in pure Python with ZIP64 support; opens with 7-Zip / WinRAR.
+  - Virtual Office: a larger archive is written as several complete ZIP packs (`NAME-1ofN.zip` …) that each open on their own and merge into one tree; a single file above the limit gets its own split-ZIP pack.
+  - Plain-text `NAME-RESTORE.txt` and `NAME-SHA256SUMS.txt` (plus `NAME-CONTENTS.tsv` for packs) are written next to divided output.
+  - `python3 -m grok_bot_backup.archive join NAME.zip OUT.zip` rebuilds an ordinary ZIP from a split archive.
+- Verifier: `--archive` accepts split ZIPs and Virtual Office packs, checks every part, compares archive members with the export folder, and checks `SHA256SUMS` when present.
 - Docs: recommend a fixed parent folder with one `YYYY-MM-DD` subfolder per backup run when storing archives on Google Drive or other remote storage.
 
 

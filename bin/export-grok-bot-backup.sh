@@ -40,6 +40,7 @@ while [[ $# -gt 0 ]]; do
       echo "  Env: INCLUDE_SUBAGENTS=1 also copies sand-subagent transcripts."
       echo "       INCLUDE_BULKY_DIRS=1 copies .venv*, .cache, node_modules, __pycache__, .git."
       echo "       BACKUP_EXCLUDE_PATHS='secrets:other-dir' excludes paths inside WORKSPACE."
+      echo "       ARCHIVE_SPLIT_SIZE=90MiB writes a standard split ZIP (.z01 ... .zip) when larger."
       echo "  --exclude PATH can be repeated; output directories are always excluded."
       exit 0
       ;;
@@ -52,6 +53,9 @@ if [[ "$DEPRECATED_FLAG" -eq 1 ]]; then
 fi
 
 [[ -d "$AGENT_DATA" ]] || die "AGENT_DATA not found: $AGENT_DATA"
+# Optional per-file size limit (e.g. 90MiB) for upload services; validate before copying.
+python3 -c 'from grok_bot_backup.archive import split_size_from_env; split_size_from_env()' \
+  || die "invalid ARCHIVE_SPLIT_SIZE: ${ARCHIVE_SPLIT_SIZE:-}"
 echo "WARNING: Unencrypted full-data backup; credentials and secrets may be included." >&2
 echo "WORKSPACE=$WORKSPACE OUT_ROOT=$OUT_ROOT BACKUP_EXCLUDE_PATHS=${BACKUP_EXCLUDE_PATHS:-}" >&2
 mkdir -p "$DEST"/{agents,shared,workspace,meta}
@@ -284,6 +288,8 @@ print(f"Manifest written: {len(files)} files, {total_bytes} bytes, {agent_count}
 PY
 
 # --- ZIP (Windows-compatible, retains symlinks as ZIP link entries) ---
+# With ARCHIVE_SPLIT_SIZE set and a larger archive, this writes a standard split
+# ZIP (name.z01 ... name.zip) plus name-RESTORE.txt and name-SHA256SUMS.txt.
 mkdir -p "$OUT_ROOT"
 find "$DEST" -type d -exec chmod 700 {} + ; find "$DEST" -type f -exec chmod 600 {} +
 python3 -m grok_bot_backup.archive "$DEST" "$ARCHIVE"
@@ -291,12 +297,15 @@ python3 -m grok_bot_backup.archive "$DEST" "$ARCHIVE"
 # summary
 python3 - "$DEST" "$ARCHIVE" <<'PY'
 import json, pathlib, sys
+from grok_bot_backup.archive import split_parts
 dest=pathlib.Path(sys.argv[1])
 archive=pathlib.Path(sys.argv[2])
+parts=split_parts(archive)
 m=json.loads((dest/"meta"/"MANIFEST.json").read_text(encoding="utf-8"))
 print("EXPORT_DIR="+str(dest))
 print("ARCHIVE="+str(archive))
-print("ARCHIVE_BYTES="+str(archive.stat().st_size))
+print("ARCHIVE_BYTES="+str(sum(p.stat().st_size for p in parts)))
+print("ARCHIVE_PARTS="+str(len(parts)))
 print("FILE_COUNT="+str(m["file_count"]))
 print("TOTAL_BYTES="+str(m["total_bytes"]))
 print("AGENT_COUNT="+str(m["agent_count"]))

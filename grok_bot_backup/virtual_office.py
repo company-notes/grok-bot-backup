@@ -21,7 +21,7 @@ from .common import (
     AGENT_DATA, OUT_ROOT, WORKSPACE, add_deprecated_private_args, copy_if,
     lock_down, safe_name, utc_stamp, warn_deprecated_private_args, write, valid_agent_id,
 )
-from .archive import create_zip
+from .archive import SPLIT_ENV, create_zip_packs, parse_size, print_result
 from .program import snapshot_program
 from .workspace import copy_workspace
 
@@ -184,7 +184,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Export Virtual Office readable pack")
     add_deprecated_private_args(parser)
     parser.add_argument("--exclude", action="append", default=[], help="Workspace path to omit")
+    parser.add_argument("--split-size", default=os.environ.get(SPLIT_ENV, ""),
+                        help=f"Largest output ZIP, e.g. 90MiB (default: ${SPLIT_ENV}; empty = one ZIP)")
     args = parser.parse_args()
+    try:
+        split_size = parse_size(args.split_size)
+    except ValueError as exc:
+        parser.error(str(exc))
     warn_deprecated_private_args(args)
     if args.exclude:
         old = os.environ.get("BACKUP_EXCLUDE_PATHS", "")
@@ -265,14 +271,15 @@ After extraction: `grep -rn "keyword" 01-assistants/*/conversations/`
 
     lock_down(DEST)
     archive = OUT_ROOT / f"virtual-office-{STAMP}.zip"
-    create_zip(DEST, archive)
+    # Over the optional size limit: several complete ZIPs (name-1ofN.zip ...)
+    # plus name-RESTORE.txt, name-CONTENTS.tsv and name-SHA256SUMS.txt.
+    result = create_zip_packs(DEST, archive, split_size)
 
     files = [p for p in DEST.rglob("*") if p.is_file()]
     print(f"DEST={DEST}")
-    print(f"ARCHIVE={archive}")
+    print_result(result, archive)
     print(f"FILES={len(files)}")
     print(f"BYTES={sum(p.stat().st_size for p in files)}")
-    print(f"ARCHIVE_BYTES={archive.stat().st_size}")
     print(f"PROGRAM_COMMIT={prog.get('commit')} DIRTY={prog.get('dirty')}")
     print(f"CONVERSATION_MESSAGES={total_msgs}")
     su = mem_status.get("shared_user")

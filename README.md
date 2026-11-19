@@ -33,7 +33,7 @@ The export commands only write to the local `OUT_ROOT`. They do **not** upload a
 If you copy backups to Google Drive (or a similar remote folder):
 
 - Pick one fixed parent folder for all backups.
-- For each backup run, create a dated subfolder named `YYYY-MM-DD` (the run date in your own time zone) and put that run's `.zip` archives, verification reports and checksum files in it.
+- For each backup run, create a dated subfolder named `YYYY-MM-DD` (the run date in your own time zone) and put that run's `.zip` archives, verification reports and checksum files in it. If the upload tool has a per-file limit, set `ARCHIVE_SPLIT_SIZE` (see below) and upload **every** part plus the `-RESTORE.txt`, `-SHA256SUMS.txt` (and Virtual Office `-CONTENTS.tsv`) files. Never cut a ZIP into byte chunks yourself: a raw byte slice is not a valid ZIP and cannot be opened on its own.
 - Keep older dated folders as they are. Do not mix files from different runs in the same level.
 - If a Grok Bot assistant or routine does the upload, write this convention into the assistant's storage settings or the routine prompt so every run follows it.
 
@@ -72,10 +72,44 @@ Use `required: true` only for assistants you actually expect on your own box; `r
 
 ZIP uses standard compression with **ZIP64** support for files or archives over 4 GB and UTF-8 names for non-ASCII paths. Symlinks are saved **as Unix-style link entries without following their targets**, to prevent copying data outside the chosen backup scope. Windows built-in extraction does **not** re-create Unix symlinks or POSIX permissions reliably; this affects exact restoration, not the readability of ordinary documents. The original uncompressed export remains available for platform-specific recovery.
 
+### Upload services with a per-file size limit
+
+Some upload tools reject files above a fixed size (for example, a 100 MB cap per file). Set `ARCHIVE_SPLIT_SIZE` to the largest file you want to produce, leaving some headroom below the hard limit. **Recommended value for a 100 MB cap: `90MiB`.**
+
+```bash
+ARCHIVE_SPLIT_SIZE=90MiB bin/export-grok-bot-backup.sh
+ARCHIVE_SPLIT_SIZE=90MiB bin/export-virtual-office.sh
+# or: bin/export-virtual-office.sh --split-size 90MiB
+```
+
+Sizes accept bytes or `K`/`M`/`G` (`KiB`/`MiB`/`GiB`, powers of 1024) and `KB`/`MB`/`GB` (powers of 1000); the minimum is 64 KiB. **When the variable is unset or empty, nothing changes: each command writes one `.zip`.** An archive that already fits under the limit also stays a single `.zip`. When an archive is larger, the two exports use different layouts:
+
+| Export | Layout over the limit | Files to keep / upload |
+| --- | --- | --- |
+| Raw `grok-bot-export-<UTC>` (for computers and recovery) | **One standard split ZIP archive** (PKWARE APPNOTE §8.5, the same format as Info-ZIP `zip -s`): `NAME.z01`, `NAME.z02`, …, `NAME.zip`. Every part except the last is exactly the limit. | All `NAME.z??` parts, `NAME.zip`, `NAME-RESTORE.txt`, `NAME-SHA256SUMS.txt` |
+| Readable `virtual-office-<UTC>` (for people) | **Several complete ZIP files** `NAME-1ofN.zip` … `NAME-NofN.zip`, filled in file order until the next file would not fit. Each opens on its own (including Windows **Extract All…**). All packs share the same top-level folder, so extracting every pack into one folder rebuilds the full tree and keeps relative links working. | All `NAME-*ofN.zip` (plus any `.z??` parts, see below), `NAME-RESTORE.txt`, `NAME-CONTENTS.tsv`, `NAME-SHA256SUMS.txt` |
+
+`NAME-RESTORE.txt` is a plain-text file written **next to** the archives (not inside them) explaining how to open them. `NAME-SHA256SUMS.txt` works with `sha256sum -c`. `NAME-CONTENTS.tsv` lists which file is in which Virtual Office pack. If a single readable file is itself larger than the limit, it is stored alone in its own pack, which is then a split ZIP (`NAME-KofN.z01` … `NAME-KofN.zip`); the restore notes and contents list mark it.
+
+**Opening a split ZIP:** put all parts in one folder and open the `.zip` part (not `.z01`) with [7-Zip](https://www.7-zip.org/) or WinRAR, or `7zz x NAME.zip` on Linux/macOS. **Windows File Explorer cannot open split ZIP archives.** Without 7-Zip, this project can join the parts into an ordinary ZIP that any tool opens:
+
+```bash
+python3 -m grok_bot_backup.archive join NAME.zip NAME-joined.zip
+```
+
+Avoid joining with Info-ZIP `zip -s 0` or `zip -FF`: in our tests Info-ZIP 3.0 truncated files whose data spans more than two parts, even for split archives it had created itself. The split archive is written in pure Python; no extra package is needed to create or verify it.
+
 To verify a ZIP against a still-accessible Grok Bot box, pass it explicitly:
 
 ```bash
 bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC> --archive /workspace/exports/grok-bot-export-<UTC>.zip --strict
+```
+
+For split or multi-pack output, pass `NAME.zip` (split ZIP) or any one `NAME-KofN.zip` (Virtual Office packs); the verifier finds the other parts. It checks that every part is present, tests each ZIP (joining split archives in a temporary folder), confirms the members exactly match the export folder (same as an unsplit ZIP), and checks `NAME-SHA256SUMS.txt` when present:
+
+```bash
+bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC> --archive /workspace/exports/grok-bot-export-<UTC>.zip
+bin/verify-export.sh /workspace/exports/virtual-office-<UTC> --archive /workspace/exports/virtual-office-<UTC>-1of2.zip
 ```
 
 Old `.tar.gz` backups remain readable by supported archive tools and can still be passed to `verify-export.sh --archive`. The exporter no longer creates new `.tar.gz` files by default.
@@ -166,7 +200,7 @@ Shared user memory may use the same mechanism under `shared-user/memory-status.j
 
 ### ZIP archive verification
 
-Each finished export now includes a `.zip` archive and an uncompressed directory. The normal folder check verifies contents against the live source index; add `--archive /path/to/file.zip` to also check the ZIP's file integrity and confirm it includes the backup program snapshot. Verification remains able to inspect legacy `.tar.gz` archives.
+Each finished export now includes a `.zip` archive and an uncompressed directory. The normal folder check verifies contents against the live source index; add `--archive /path/to/file.zip` to also check the ZIP's file integrity, confirm it includes the backup program snapshot, and confirm its members match the export folder. Split archives and Virtual Office packs are supported (see [Upload services with a per-file size limit](#upload-services-with-a-per-file-size-limit)). Verification remains able to inspect legacy `.tar.gz` archives.
 
 
 ```bash
@@ -199,6 +233,7 @@ Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `
 | `INCLUDE_SUBAGENTS` | `0` | Set `1` to include sand-subagent transcripts in raw backup |
 | `MEMORY_DROP` | `$WORKSPACE/exports/memory-drop` | Pre-exported platform memory files |
 | `MEMORY_MAX_AGE_DAYS` | `2` | Max age of a memory drop before WARN / strict FAIL |
+| `ARCHIVE_SPLIT_SIZE` | empty (one `.zip`) | Largest output file, e.g. `90MiB`; larger raw archives become a split ZIP, larger readable archives become several complete ZIPs |
 | `GROK_BACKUP_CONFIG` | `<repo>/config.json` | Optional expected agent roster |
 | `GROK_BACKUP_USER_LABEL` | `User` | Conversation label for the human side |
 

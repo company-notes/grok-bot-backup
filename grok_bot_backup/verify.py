@@ -13,14 +13,99 @@ import pathlib
 import re
 import sqlite3
 import tarfile
+import tempfile
 import zipfile
 
 import hashlib
 
+from .archive import (
+    _iter_nodes, is_split_zip, join_split_zip, sha256_file, sidecar, split_parts,
+)
 from .common import AGENT_DATA, SEARCH_INDEX, TAIPEI
 
 ENTRY_RE = re.compile(r"^<!-- entry:(\S+) seq:(\S+) -->$", re.M)
 HDR_RE = re.compile(r"^### (\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2} · ", re.M)
+
+
+PACK_RE = re.compile(r"^(?P<stem>.+)-(?P<index>\d+)of(?P<total>\d+)\.zip$")
+
+
+def _zip_names(path: pathlib.Path, check, label: str) -> list[str]:
+    """Test one ZIP (joining it first if it is a split archive); return member names."""
+    if is_split_zip(path):
+        parts = split_parts(path)
+        missing = [p.name for p in parts if not p.is_file()]
+        check(not missing, f"{label}: split ZIP has all {len(parts)} parts"
+              + ("" if not missing else " (missing " + ", ".join(missing) + ")"))
+        if missing:
+            return []
+        with tempfile.TemporaryDirectory(prefix="verify-split-") as tmp:
+            joined = join_split_zip(path, pathlib.Path(tmp) / "joined.zip")
+            return _zip_names(joined, check, label + " (joined)")
+    with zipfile.ZipFile(path) as zipped:
+        names = zipped.namelist()
+        corrupt = zipped.testzip()
+    check(corrupt is None,
+          f"{label}: ZIP data integrity" if corrupt is None else f"{label}: corrupt ZIP entry: {corrupt}")
+    return names
+
+
+def verify_archive(archive_path: pathlib.Path, root: pathlib.Path, check) -> None:
+    """Check a single ZIP, a split ZIP (name.z01 ... name.zip) or a set of ZIP packs."""
+    try:
+        sums_base = archive_path
+        match = PACK_RE.match(archive_path.name)
+        if match:
+            total = int(match.group("total"))
+            sums_base = archive_path.with_name(match.group("stem") + ".zip")
+            packs = [archive_path.with_name(f"{match.group('stem')}-{i}of{total}.zip")
+                     for i in range(1, total + 1)]
+            missing = [p.name for p in packs if not p.is_file()]
+            check(not missing, f"all {total} ZIP packs present"
+                  + ("" if not missing else " (missing " + ", ".join(missing) + ")"))
+            names = []
+            for pack in packs:
+                if pack.is_file():
+                    names += _zip_names(pack, check, pack.name)
+            print(f"INFO Archive layout: {total} independent ZIP packs")
+        elif zipfile.is_zipfile(archive_path) or is_split_zip(archive_path):
+            if is_split_zip(archive_path):
+                print(f"INFO Archive layout: split ZIP in {len(split_parts(archive_path))} parts")
+            names = _zip_names(archive_path, check, archive_path.name)
+        elif tarfile.is_tarfile(archive_path):
+            # Existing .tar.gz archives remain verifiable for compatibility.
+            with tarfile.open(archive_path, "r:*") as tar:
+                names = tar.getnames()
+            print("INFO Legacy tar archive: ZIP is now the default output")
+            check(any(n.endswith("/COMMIT") for n in names),
+                  f"archive contains program COMMIT ({len(names)} members)")
+            return
+        else:
+            raise ValueError("not a readable ZIP or legacy tar archive")
+        check(any(n.endswith("/COMMIT") for n in names),
+              f"archive contains program COMMIT ({len(names)} members)")
+        check(len(names) == len(set(names)), "no duplicate archive members")
+        if root.is_dir():
+            expected = {arc + ("/" if p.is_dir() and not p.is_symlink() else "")
+                        for p, arc in _iter_nodes(root.resolve())}
+            got = set(names)
+            check(got == expected,
+                  f"archive members match export folder ({len(got)} archive / {len(expected)} folder"
+                  + (f"; missing {len(expected - got)}, extra {len(got - expected)}" if got != expected else "")
+                  + ")")
+        sums = sidecar(sums_base, "SHA256SUMS.txt")
+        if sums.is_file():
+            bad = []
+            lines = [l for l in sums.read_text(encoding="utf-8").splitlines() if l.strip()]
+            for line in lines:
+                digest, name = line.split(None, 1)
+                target = sums.with_name(name.strip().lstrip("*"))
+                if not target.is_file() or sha256_file(target) != digest:
+                    bad.append(target.name)
+            check(not bad, f"SHA256SUMS match ({len(lines) - len(bad)}/{len(lines)})"
+                  + ("" if not bad else " bad: " + ", ".join(bad)))
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError) as exc:
+        check(False, f"cannot read archive: {exc}")
 
 
 def main() -> None:
@@ -89,25 +174,7 @@ def main() -> None:
     check(prog is not None and (prog / "source" / "grok_bot_backup" / "common.py").exists(), "program source present")
 
     if a.archive:
-        archive_path = pathlib.Path(a.archive)
-        try:
-            if zipfile.is_zipfile(archive_path):
-                with zipfile.ZipFile(archive_path) as zipped:
-                    names = zipped.namelist()
-                    corrupt = zipped.testzip()
-                check(corrupt is None,
-                      "ZIP data integrity" if corrupt is None else f"corrupt ZIP entry: {corrupt}")
-            elif tarfile.is_tarfile(archive_path):
-                # Existing .tar.gz archives remain verifiable for compatibility.
-                with tarfile.open(archive_path, "r:*") as tar:
-                    names = tar.getnames()
-                print("INFO Legacy tar archive: ZIP is now the default output")
-            else:
-                raise ValueError("not a readable ZIP or legacy tar archive")
-            check(any(n.endswith("/COMMIT") for n in names),
-                  f"archive contains program COMMIT ({len(names)} members)")
-        except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError) as exc:
-            check(False, f"cannot read archive: {exc}")
+        verify_archive(pathlib.Path(a.archive), root, check)
 
     # full backup: every source notes/ file must have a byte-identical copy in the export
     def sha(p: pathlib.Path) -> str:

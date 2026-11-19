@@ -108,6 +108,52 @@ def verify_archive(archive_path: pathlib.Path, root: pathlib.Path, check) -> Non
         check(False, f"cannot read archive: {exc}")
 
 
+def verify_home(root: pathlib.Path, check) -> None:
+    """Compare the copied home directory with its copy report (and the live home if present)."""
+    report_path = next((p for p in (root / "meta" / "home-copy.json", root / "home-copy.json")
+                        if p.is_file()), None)
+    if report_path is None:
+        print("SKIP HOME: no home-copy.json (older export)")
+        return
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not report.get("enabled") or report.get("note"):
+        print(f"SKIP HOME: {report.get('note', 'INCLUDE_HOME=0')}")
+        return
+    copied = next((p for p in (root / "home", root / "00-shared" / "box-home") if p.is_dir()), None)
+    check(copied is not None, "home directory copy present")
+    if copied is None:
+        return
+    files = links = 0
+    for parent, dirs, names in os.walk(copied):
+        for name in dirs + names:
+            path = pathlib.Path(parent) / name
+            if path.is_symlink():
+                links += 1
+            elif name in names:
+                files += 1
+    check(files == report["files"] and links == report["symlinks"],
+          f"home copy matches report ({files} files / {links} links; report "
+          f"{report['files']} / {report['symlinks']})")
+    skipped = report.get("skipped", [])
+    unreadable = report.get("unreadable", [])
+    print(f"INFO HOME {report['home']}: {len(skipped)} omitted, {len(unreadable)} unreadable "
+          f"(see {report_path.relative_to(root)})")
+    for item in unreadable[:20]:
+        print(f"WARN HOME unreadable, skipped: {item['path']} ({item['error']})")
+    live = pathlib.Path(report.get("home_resolved") or report["home"])
+    if live.is_dir():
+        accounted = {x["path"].split("/", 1)[0] for x in skipped if "/" not in x["path"]}
+        accounted |= {x["path"].rstrip("/") for x in unreadable if "/" not in x["path"].rstrip("/")}
+        missing = sorted(p.name for p in live.iterdir()
+                         if p.name not in accounted and not os.path.lexists(copied / p.name))
+        # Live home can change after the backup, so a difference is a warning only.
+        if missing:
+            print("WARN HOME entries now in the live home but not in the backup "
+                  "(new since the backup?): " + ", ".join(missing[:10]))
+        else:
+            print("PASS every top-level home entry copied or listed as omitted")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("export_dir")
@@ -172,6 +218,8 @@ def main() -> None:
     commit = (prog / "COMMIT").read_text().strip() if prog else ""
     check(bool(re.fullmatch(r"[0-9a-f]{40}", commit)), f"program COMMIT {commit[:12]}")
     check(prog is not None and (prog / "source" / "grok_bot_backup" / "common.py").exists(), "program source present")
+
+    verify_home(root, check)
 
     if a.archive:
         verify_archive(pathlib.Path(a.archive), root, check)

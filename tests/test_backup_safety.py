@@ -26,7 +26,8 @@ class BackupSafetyTests(unittest.TestCase):
             (workspace / "docs").mkdir()
             (workspace / "docs" / "note.md").write_text("note")
 
-            with patch.dict(os.environ, {"INCLUDE_BULKY_DIRS": "0", "BACKUP_EXCLUDE_PATHS": ""}):
+            with patch.dict(os.environ, {"INCLUDE_BULKY_DIRS": "0", "BACKUP_EXCLUDE_PATHS": "",
+                                         "INCLUDE_HOME": "0"}):
                 with patch.object(virtual_office, "WORKSPACE", workspace), \
                      patch.object(virtual_office, "OUT_ROOT", output), \
                      patch.object(virtual_office, "AGENT_DATA", root / "agent-data"):

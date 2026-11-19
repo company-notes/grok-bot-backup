@@ -72,6 +72,13 @@ class RawAgentTreeTests(unittest.TestCase):
             conn.close()
 
             output = workspace / "exports"
+            # Fake box home: credential folder kept, AGENT_DATA link not duplicated.
+            home = root / "home"
+            (home / ".secrets").mkdir(parents=True)
+            (home / ".secrets" / "service.env").write_text("TOKEN=placeholder")
+            (home / ".cache").mkdir()
+            (home / ".cache" / "blob").write_text("cache")
+            os.symlink(str(data), home / "agent-data")
             env = os.environ.copy()
             env.update({
                 "AGENT_DATA": str(data),
@@ -80,6 +87,11 @@ class RawAgentTreeTests(unittest.TestCase):
                 "MEMORY_DROP": str(workspace / "empty-memory-drop"),
                 "BACKUP_EXCLUDE_PATHS": "",
                 "INCLUDE_BULKY_DIRS": "0",
+                "INCLUDE_HOME": "1",
+                "BOX_HOME": str(home),
+                "HOME_EXCLUDE_PATHS": "",
+                "HOME_INCLUDE_PATHS": "",
+                "ARCHIVE_SPLIT_SIZE": "",
             })
             exported = subprocess.run(
                 [str(repo / "bin" / "export-grok-bot-backup.sh")],
@@ -100,6 +112,12 @@ class RawAgentTreeTests(unittest.TestCase):
                     archive.read(f"{folder.name}/agents/active-agent.json").decode("utf-8"),
                     source_files["active-agent.json"],
                 )
+                names = archive.namelist()
+                self.assertIn(f"{folder.name}/home/.secrets/service.env", names)
+                self.assertFalse(any(n.startswith(f"{folder.name}/home/.cache") for n in names))
+                self.assertFalse(any(n.startswith(f"{folder.name}/home/agent-data") for n in names))
+            home_report = json.loads((folder / "meta" / "home-copy.json").read_text())
+            self.assertEqual(home_report["files"], 1)
 
             for name, expected in source_files.items():
                 with self.subTest(name=name):
@@ -148,6 +166,8 @@ class RawAgentTreeTests(unittest.TestCase):
             with zipfile.ZipFile(human_zip) as archive:
                 self.assertIsNone(archive.testzip())
                 self.assertIn(f"{human_dir.name}/README.md", archive.namelist())
+                self.assertIn(f"{human_dir.name}/00-shared/box-home/.secrets/service.env",
+                              archive.namelist())
                 self.assertTrue(any(
                     item.endswith("/conversations/conversation-stats.json") or
                     item.endswith("/conversation-index.md")

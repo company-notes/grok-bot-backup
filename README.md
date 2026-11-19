@@ -144,6 +144,31 @@ INCLUDE_BULKY_DIRS=1 INCLUDE_SUBAGENTS=1 bin/export-grok-bot-backup.sh
 INCLUDE_BULKY_DIRS=1 bin/export-virtual-office.sh
 ```
 
+### Home directory (`/home/box`): included by default, **with password files**
+
+Files that assistants or tools keep in the box home directory, outside `WORKSPACE` and `AGENT_DATA`, are backed up too: for example credential folders (`.secrets/`), folders that assistants create for themselves (often hidden, such as `.<name>/`), tool settings (`.config/`, `.gitconfig`) and MCP sign-in data (`.mcp-auth/`). **These usually contain passwords, API keys and tokens. They are copied unencrypted.** The raw export stores them in `home/`; the Virtual Office export stores them in `00-shared/box-home/` (the same way it already includes the workspace).
+
+Always omitted, to avoid duplicates and recursion (paths are compared after resolving symlinks): `AGENT_DATA` and its real target (for example the `agent-data` link and the folder it points to), `WORKSPACE` if it lies inside the home directory, `OUT_ROOT`, `$WORKSPACE/exports`, and earlier `grok-bot-export-*` / `virtual-office-*` folders and archives.
+
+Omitted by default because they can be rebuilt:
+
+| Path | Why |
+| --- | --- |
+| `.cache/` | Caches (pip, uv, browsers, tools) rebuilt automatically |
+| `.npm/` | npm package cache |
+| `.local/lib/`, `.local/include/` | Installed Python packages, reinstallable (the rest of `.local/`, e.g. `share/keyrings`, is kept) |
+| `chrome-profile/` | Browser profile: large, mostly cache; its sign-in sessions are tied to this machine |
+| `.venv*`, `node_modules`, `__pycache__`, `.git` anywhere | Same bulky-folder rule as the workspace (`INCLUDE_BULKY_DIRS=1` keeps them) |
+
+Symbolic links are copied as links and never followed. Files or folders the backup cannot read are skipped and listed under `unreadable` in the report instead of stopping the backup. The report — `meta/home-copy.json` (raw) or `home-copy.json` (Virtual Office) — lists what was copied per top-level entry, every omitted path with its reason and size, and unreadable paths.
+
+```bash
+INCLUDE_HOME=0 bin/export-grok-bot-backup.sh                     # do not copy the home directory
+BOX_HOME=/home/otheruser bin/export-grok-bot-backup.sh           # different home directory
+HOME_EXCLUDE_PATHS=".ssh:big-downloads" bin/export-grok-bot-backup.sh   # omit more (relative to BOX_HOME or absolute)
+HOME_INCLUDE_PATHS="chrome-profile" bin/export-grok-bot-backup.sh       # keep a default exclusion after all
+```
+
 **Warning:** "All accessible data" cannot include information the local platform does not expose. See memory preparation below.
 
 ## Prepare platform memory *before* backup
@@ -233,6 +258,10 @@ Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `
 | `INCLUDE_SUBAGENTS` | `0` | Set `1` to include sand-subagent transcripts in raw backup |
 | `MEMORY_DROP` | `$WORKSPACE/exports/memory-drop` | Pre-exported platform memory files |
 | `MEMORY_MAX_AGE_DAYS` | `2` | Max age of a memory drop before WARN / strict FAIL |
+| `INCLUDE_HOME` | `1` | Set `0` to skip the home directory |
+| `BOX_HOME` | `/home/box` | Home directory to back up |
+| `HOME_EXCLUDE_PATHS` | empty | Extra colon-separated home paths to omit (relative to `BOX_HOME` or absolute) |
+| `HOME_INCLUDE_PATHS` | empty | Default home exclusions to keep anyway (`.cache`, `.npm`, `.local/lib`, `.local/include`, `chrome-profile`) |
 | `ARCHIVE_SPLIT_SIZE` | empty (one `.zip`) | Largest output file, e.g. `90MiB`; larger raw archives become a split ZIP, larger readable archives become several complete ZIPs |
 | `GROK_BACKUP_CONFIG` | `<repo>/config.json` | Optional expected agent roster |
 | `GROK_BACKUP_USER_LABEL` | `User` | Conversation label for the human side |
@@ -246,13 +275,14 @@ Older `NUWA_BACKUP_CONFIG` and `NUWA_BACKUP_USER_LABEL` environment variables re
 - `agents/`: **complete accessible source tree**, including actual assistant UUID directories (with `private/`, notes, settings, attachments and databases), plus non-assistant directories such as `organization/`, `people/`, `procedures/` and top-level metadata such as `active-agent.json` and `audit-outbox.json`. These non-assistant entries are preserved as raw data but **never counted as assistants**.
 - `shared/`: local shared memory, projects, workflows, and optionally frozen subagent transcripts.
 - `workspace/`: shared workspace files, subject to configurable exclusions.
+- `home/`: the box home directory (default `/home/box`), **including credential and settings files**; omissions in `meta/home-copy.json`.
 - `conversations/`: monthly human-readable Markdown and raw JSONL from the platform-synchronized SQLite index. Non-assistant identifiers (such as `organization`, `people`, `procedures`) are not treated as assistants or displayed as `Unknown assistant`. The raw archive also keeps a consistent `conversations/search-index-snapshot.db` SQLite copy, including platform records that are not assistant conversations.
 - `platform-memory/`: readable RecallMemory export, when supplied.
 - `meta/`: file inventory, workspace omissions, and this program's git revision.
 
 ### Human-readable export: `virtual-office-<UTC>/`
 
-- `00-shared/`: available projects, shared memory, skills, **workspace outputs**.
+- `00-shared/`: available projects, shared memory, skills, **workspace outputs**, and `box-home/` (home directory, **including credential files**).
 - `01-assistants/<name>/`: profiles, notes, **private** content, routines, attachments, conversations, memory.
 - `02-groups/<name>/`: group information and conversations.
 - `99-backup-program/`: source code version and conversation statistics.

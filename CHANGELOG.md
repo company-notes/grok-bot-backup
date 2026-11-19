@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Home directory backup (on by default):** the box home directory (`BOX_HOME`, default `/home/box`) is copied into `home/` (raw) and `00-shared/box-home/` (Virtual Office), so credential folders, tool settings, MCP sign-in data and assistant-created folders outside `WORKSPACE`/`AGENT_DATA` are no longer lost. **This includes password and token files, unencrypted.**
+  - Omitted: `AGENT_DATA` and its resolved target, `WORKSPACE` inside home, `OUT_ROOT`, earlier backups; by default also `.cache`, `.npm`, `.local/lib`, `.local/include`, `chrome-profile` and bulky folders.
+  - Settings: `INCLUDE_HOME=0`, `HOME_EXCLUDE_PATHS`, `HOME_INCLUDE_PATHS`. Symlinks are kept, not followed; unreadable paths are reported and skipped.
+  - `home-copy.json` reports copied entries, omissions with reasons and sizes, and unreadable paths; the verifier checks the copy against it.
 - Optional per-file size limit, `ARCHIVE_SPLIT_SIZE` (for example `90MiB` for an upload tool with a 100 MB cap). Unset keeps the previous single-ZIP output.
   - Raw export: a larger archive is written as a standard split ZIP (`NAME.z01` … `NAME.zip`, APPNOTE §8.5 / Info-ZIP `zip -s` format), implemented in pure Python with ZIP64 support; opens with 7-Zip / WinRAR.
   - Virtual Office: a larger archive is written as several complete ZIP packs (`NAME-1ofN.zip` …) that each open on their own and merge into one tree; a single file above the limit gets its own split-ZIP pack.

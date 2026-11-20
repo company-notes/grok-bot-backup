@@ -13,14 +13,178 @@ import pathlib
 import re
 import sqlite3
 import tarfile
+import tempfile
 import zipfile
 
 import hashlib
 
+from .archive import (
+    _iter_nodes, is_split_zip, join_split_zip, sha256_file, sidecar, split_parts,
+)
 from .common import AGENT_DATA, SEARCH_INDEX, TAIPEI
 
 ENTRY_RE = re.compile(r"^<!-- entry:(\S+) seq:(\S+) -->$", re.M)
 HDR_RE = re.compile(r"^### (\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2} · ", re.M)
+
+
+PACK_RE = re.compile(r"^(?P<stem>.+)-(?P<index>\d+)of(?P<total>\d+)\.zip$")
+
+
+def _zip_names(path: pathlib.Path, check, label: str) -> list[str]:
+    """Test one ZIP (joining it first if it is a split archive); return member names."""
+    if is_split_zip(path):
+        parts = split_parts(path)
+        missing = [p.name for p in parts if not p.is_file()]
+        check(not missing, f"{label}: split ZIP has all {len(parts)} parts"
+              + ("" if not missing else " (missing " + ", ".join(missing) + ")"))
+        if missing:
+            return []
+        with tempfile.TemporaryDirectory(prefix="verify-split-") as tmp:
+            joined = join_split_zip(path, pathlib.Path(tmp) / "joined.zip")
+            return _zip_names(joined, check, label + " (joined)")
+    with zipfile.ZipFile(path) as zipped:
+        names = zipped.namelist()
+        corrupt = zipped.testzip()
+    check(corrupt is None,
+          f"{label}: ZIP data integrity" if corrupt is None else f"{label}: corrupt ZIP entry: {corrupt}")
+    return names
+
+
+def verify_archive(archive_path: pathlib.Path, root: pathlib.Path, check) -> None:
+    """Check a single ZIP, a split ZIP (name.z01 ... name.zip) or a set of ZIP packs."""
+    try:
+        sums_base = archive_path
+        match = PACK_RE.match(archive_path.name)
+        if match:
+            total = int(match.group("total"))
+            sums_base = archive_path.with_name(match.group("stem") + ".zip")
+            packs = [archive_path.with_name(f"{match.group('stem')}-{i}of{total}.zip")
+                     for i in range(1, total + 1)]
+            missing = [p.name for p in packs if not p.is_file()]
+            check(not missing, f"all {total} ZIP packs present"
+                  + ("" if not missing else " (missing " + ", ".join(missing) + ")"))
+            names = []
+            for pack in packs:
+                if pack.is_file():
+                    names += _zip_names(pack, check, pack.name)
+            print(f"INFO Archive layout: {total} independent ZIP packs")
+        elif zipfile.is_zipfile(archive_path) or is_split_zip(archive_path):
+            if is_split_zip(archive_path):
+                print(f"INFO Archive layout: split ZIP in {len(split_parts(archive_path))} parts")
+            names = _zip_names(archive_path, check, archive_path.name)
+        elif tarfile.is_tarfile(archive_path):
+            # Existing .tar.gz archives remain verifiable for compatibility.
+            with tarfile.open(archive_path, "r:*") as tar:
+                names = tar.getnames()
+            print("INFO Legacy tar archive: ZIP is now the default output")
+            check(any(n.endswith("/COMMIT") for n in names),
+                  f"archive contains program COMMIT ({len(names)} members)")
+            return
+        else:
+            raise ValueError("not a readable ZIP or legacy tar archive")
+        check(any(n.endswith("/COMMIT") for n in names),
+              f"archive contains program COMMIT ({len(names)} members)")
+        check(len(names) == len(set(names)), "no duplicate archive members")
+        if root.is_dir():
+            expected = {arc + ("/" if p.is_dir() and not p.is_symlink() else "")
+                        for p, arc in _iter_nodes(root.resolve())}
+            got = set(names)
+            check(got == expected,
+                  f"archive members match export folder ({len(got)} archive / {len(expected)} folder"
+                  + (f"; missing {len(expected - got)}, extra {len(got - expected)}" if got != expected else "")
+                  + ")")
+        sums = sidecar(sums_base, "SHA256SUMS.txt")
+        if sums.is_file():
+            bad = []
+            lines = [l for l in sums.read_text(encoding="utf-8").splitlines() if l.strip()]
+            for line in lines:
+                digest, name = line.split(None, 1)
+                target = sums.with_name(name.strip().lstrip("*"))
+                if not target.is_file() or sha256_file(target) != digest:
+                    bad.append(target.name)
+            check(not bad, f"SHA256SUMS match ({len(lines) - len(bad)}/{len(lines)})"
+                  + ("" if not bad else " bad: " + ", ".join(bad)))
+    except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError) as exc:
+        check(False, f"cannot read archive: {exc}")
+
+
+def _sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fp:
+        while chunk := fp.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_home(root: pathlib.Path, check) -> None:
+    """Compare the copied home directory with its copy report (and the live home if present)."""
+    report_path = next((p for p in (root / "meta" / "home-copy.json", root / "home-copy.json")
+                        if p.is_file()), None)
+    if report_path is None:
+        print("SKIP HOME: no home-copy.json (older export)")
+        return
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not report.get("enabled"):
+        print(f"SKIP HOME: {report.get('note', 'INCLUDE_HOME=0')}")
+        return
+    # INCLUDE_HOME=1 must always produce a copy; older exports wrote a note and
+    # skipped silently when BOX_HOME was missing.
+    check(not report.get("note") and "files" in report,
+          "home directory copied (INCLUDE_HOME=1)"
+          + (f": {report['note']}" if report.get("note") else ""))
+    if report.get("note") or "files" not in report:
+        return
+    copied = next((p for p in (root / "home", root / "00-shared" / "box-home") if p.is_dir()), None)
+    check(copied is not None, "home directory copy present")
+    if copied is None:
+        return
+    files = links = size = 0
+    present: dict[str, pathlib.Path] = {}
+    for parent, dirs, names in os.walk(copied):
+        for name in dirs + names:
+            path = pathlib.Path(parent) / name
+            if path.is_symlink():
+                links += 1
+            elif name in names and path.is_file():
+                files += 1
+                size += path.stat().st_size
+                present[path.relative_to(copied).as_posix()] = path
+    same_bytes = "bytes" not in report or size == report["bytes"]
+    check(files == report["files"] and links == report["symlinks"] and same_bytes,
+          f"home copy matches report ({files} files / {links} links / {size} bytes; report "
+          f"{report['files']} / {report['symlinks']} / {report.get('bytes', '?')})")
+    hashes = report.get("file_hashes")
+    if hashes is not None:
+        bad = []
+        for rel_path, want in hashes.items():
+            path = present.get(rel_path)
+            if path is None:
+                bad.append(f"{rel_path} (missing)")
+            elif path.stat().st_size != want["bytes"] or _sha256(path) != want["sha256"]:
+                bad.append(f"{rel_path} (content differs)")
+        extra = [f"{p} (not in report)" for p in sorted(set(present) - set(hashes))]
+        problems = bad + extra
+        check(not problems, f"home files match recorded size and SHA-256 "
+                            f"({len(hashes) - len(bad)}/{len(hashes)})"
+              + ("" if not problems else " bad: " + ", ".join(problems[:10])))
+    skipped = report.get("skipped", [])
+    unreadable = report.get("unreadable", [])
+    print(f"INFO HOME {report['home']}: {len(skipped)} omitted, {len(unreadable)} unreadable "
+          f"(see {report_path.relative_to(root)})")
+    for item in unreadable[:20]:
+        print(f"WARN HOME unreadable, skipped: {item['path']} ({item['error']})")
+    live = pathlib.Path(report.get("home_resolved") or report["home"])
+    if live.is_dir():
+        accounted = {x["path"].split("/", 1)[0] for x in skipped if "/" not in x["path"]}
+        accounted |= {x["path"].rstrip("/") for x in unreadable if "/" not in x["path"].rstrip("/")}
+        missing = sorted(p.name for p in live.iterdir()
+                         if p.name not in accounted and not os.path.lexists(copied / p.name))
+        # Live home can change after the backup, so a difference is a warning only.
+        if missing:
+            print("WARN HOME entries now in the live home but not in the backup "
+                  "(new since the backup?): " + ", ".join(missing[:10]))
+        else:
+            print("PASS every top-level home entry copied or listed as omitted")
 
 
 def main() -> None:
@@ -88,26 +252,10 @@ def main() -> None:
     check(bool(re.fullmatch(r"[0-9a-f]{40}", commit)), f"program COMMIT {commit[:12]}")
     check(prog is not None and (prog / "source" / "grok_bot_backup" / "common.py").exists(), "program source present")
 
+    verify_home(root, check)
+
     if a.archive:
-        archive_path = pathlib.Path(a.archive)
-        try:
-            if zipfile.is_zipfile(archive_path):
-                with zipfile.ZipFile(archive_path) as zipped:
-                    names = zipped.namelist()
-                    corrupt = zipped.testzip()
-                check(corrupt is None,
-                      "ZIP data integrity" if corrupt is None else f"corrupt ZIP entry: {corrupt}")
-            elif tarfile.is_tarfile(archive_path):
-                # Existing .tar.gz archives remain verifiable for compatibility.
-                with tarfile.open(archive_path, "r:*") as tar:
-                    names = tar.getnames()
-                print("INFO Legacy tar archive: ZIP is now the default output")
-            else:
-                raise ValueError("not a readable ZIP or legacy tar archive")
-            check(any(n.endswith("/COMMIT") for n in names),
-                  f"archive contains program COMMIT ({len(names)} members)")
-        except (OSError, ValueError, zipfile.BadZipFile, tarfile.TarError, RuntimeError) as exc:
-            check(False, f"cannot read archive: {exc}")
+        verify_archive(pathlib.Path(a.archive), root, check)
 
     # full backup: every source notes/ file must have a byte-identical copy in the export
     def sha(p: pathlib.Path) -> str:

@@ -40,6 +40,9 @@ while [[ $# -gt 0 ]]; do
       echo "  Env: INCLUDE_SUBAGENTS=1 also copies sand-subagent transcripts."
       echo "       INCLUDE_BULKY_DIRS=1 copies .venv*, .cache, node_modules, __pycache__, .git."
       echo "       BACKUP_EXCLUDE_PATHS='secrets:other-dir' excludes paths inside WORKSPACE."
+      echo "       INCLUDE_HOME=0 skips the home directory (BOX_HOME, default /home/box; copied by default,"
+      echo "       including password and token files). HOME_EXCLUDE_PATHS / HOME_INCLUDE_PATHS adjust it."
+      echo "       ARCHIVE_SPLIT_SIZE=90MiB writes a standard split ZIP (.z01 ... .zip) when larger."
       echo "  --exclude PATH can be repeated; output directories are always excluded."
       exit 0
       ;;
@@ -52,6 +55,14 @@ if [[ "$DEPRECATED_FLAG" -eq 1 ]]; then
 fi
 
 [[ -d "$AGENT_DATA" ]] || die "AGENT_DATA not found: $AGENT_DATA"
+# Optional per-file size limit (e.g. 90MiB) for upload services; validate before copying.
+python3 -c 'from grok_bot_backup.archive import split_size_from_env; split_size_from_env()' \
+  || die "invalid ARCHIVE_SPLIT_SIZE: ${ARCHIVE_SPLIT_SIZE:-}"
+python3 -c 'from grok_bot_backup.home import include_home; include_home()' \
+  || die "invalid INCLUDE_HOME: ${INCLUDE_HOME:-}"
+# INCLUDE_HOME=1 with a missing BOX_HOME is an error, never a silent skip.
+python3 -c 'from grok_bot_backup.home import require_home_source; require_home_source()' \
+  || die "home directory not found: ${BOX_HOME:-/home/box} (set BOX_HOME, or INCLUDE_HOME=0 to skip it)"
 echo "WARNING: Unencrypted full-data backup; credentials and secrets may be included." >&2
 echo "WORKSPACE=$WORKSPACE OUT_ROOT=$OUT_ROOT BACKUP_EXCLUDE_PATHS=${BACKUP_EXCLUDE_PATHS:-}" >&2
 mkdir -p "$DEST"/{agents,shared,workspace,meta}
@@ -137,6 +148,11 @@ fi
 # --- Workspace contents; the only unconditional exclusion is our own export output. ---
 python3 -m grok_bot_backup.workspace "$WORKSPACE" "$DEST/workspace" "$OUT_ROOT" "$DEST/meta/workspace-copy.json"
 
+# --- Home directory (default /home/box): files outside WORKSPACE and AGENT_DATA,
+#     such as credential folders and tool settings. Caches, the browser profile,
+#     AGENT_DATA and WORKSPACE are omitted; see meta/home-copy.json. ---
+python3 -m grok_bot_backup.home "$DEST/home" "$OUT_ROOT" "$DEST/meta/home-copy.json"
+
 # --- Full conversations of every assistant (platform-synced search index) ---
 python3 -m grok_bot_backup.conversations --dest "$DEST/conversations" >/dev/null
 
@@ -163,6 +179,11 @@ program_commit = sys.argv[6]
 conv = json.loads((dest / "conversations" / "conversation-stats.json").read_text(encoding="utf-8"))
 conv_total = sum(a["messages"] for a in conv["agents"])
 workspace_report = json.loads((dest / "meta" / "workspace-copy.json").read_text(encoding="utf-8"))
+home_report = json.loads((dest / "meta" / "home-copy.json").read_text(encoding="utf-8"))
+home_summary = {k: home_report.get(k) for k in (
+    "enabled", "home", "files", "symlinks", "bytes", "note")}
+home_summary["skipped"] = [f"{x['path']} ({x['reason']})" for x in home_report.get("skipped", [])]
+home_summary["unreadable"] = [x["path"] for x in home_report.get("unreadable", [])]
 
 def file_list(root: pathlib.Path):
     rows = []
@@ -210,18 +231,20 @@ manifest = {
         "shared/user-memory, shared/projects (if present)",
         "shared/agent-transcripts (excluding sand-subagent-* unless INCLUDE_SUBAGENTS=1)",
         "workspace/ (excludes backup output and old generated archives, explicit excludes and default bulky directories; see meta/workspace-copy.json)",
+        "home/ (BOX_HOME, default /home/box, including credential and settings files; excludes AGENT_DATA, WORKSPACE, caches and browser profile; see meta/home-copy.json)",
         "conversations/<name>/YYYY-MM.md full chat history from search-index.db (+ raw/, attachment-index.md, frozen supplement)",
         "meta/backup-program/ (repo source at HEAD + COMMIT)",
         "platform-memory/ human-readable RecallMemory drops when MEMORY_DROP exists",
         "agents/<id>/platform-memory/ and shared/platform-memory/ raw jsonl from those drops",
     ],
     "excluded": [
-        "Host-level files outside the included trees are not deliberately copied; included folders can still contain secrets",
+        "Host-level files outside the included trees (AGENT_DATA, WORKSPACE, BOX_HOME) are not deliberately copied; included folders contain secrets",
         "managed-skills/, plugin-skills/ (Cursor-managed)",
         "Only explicitly unselected sources are excluded; active platform index is also exported as conversation snapshots",
         "sand-subagent transcripts (default)",
     ],
     "workspace_copy": workspace_report,
+    "home_copy": home_summary,
     "memory_drop": os.environ.get("MEMORY_DROP", os.path.join(os.environ.get("WORKSPACE", "/workspace"), "exports/memory-drop")),
     "include_subagents": os.environ.get("INCLUDE_SUBAGENTS", "0") == "1",
     "full_backup": not any(
@@ -259,11 +282,12 @@ Exported from shared box computer.
 - `platform-memory/` — human-readable platform memory from RecallMemory drops (phase 1); index at `platform-memory/memory-index.md`
 - `agents/<id>/platform-memory/` — raw jsonl of that assistant's drop, if any
 - `workspace/` — shared work products / deliverables from `/workspace`
+- `home/` — the box home directory (default `/home/box`), including credential and settings files; omissions in `meta/home-copy.json`
 - `meta/MANIFEST.json` — file inventory
 - `meta/backup-program/` — the backup program used (repo source at commit `{program_commit}`)
 
 ## Excluded on purpose
-Host files outside selected trees and, by default, sand-subagent transcripts. Current output roots, prior grok-bot-export-* and virtual-office-* folders/archives, explicit excludes and optional bulky directories are listed in `meta/workspace-copy.json`.
+Host files outside selected trees and, by default, sand-subagent transcripts. Current output roots, prior grok-bot-export-* and virtual-office-* folders/archives, explicit excludes and optional bulky directories are listed in `meta/workspace-copy.json`. Home-directory omissions (AGENT_DATA, WORKSPACE, caches, browser profile) and unreadable files are listed in `meta/home-copy.json`.
 
 ## Re-run
 ```bash
@@ -284,6 +308,8 @@ print(f"Manifest written: {len(files)} files, {total_bytes} bytes, {agent_count}
 PY
 
 # --- ZIP (Windows-compatible, retains symlinks as ZIP link entries) ---
+# With ARCHIVE_SPLIT_SIZE set and a larger archive, this writes a standard split
+# ZIP (name.z01 ... name.zip) plus name-RESTORE.txt and name-SHA256SUMS.txt.
 mkdir -p "$OUT_ROOT"
 find "$DEST" -type d -exec chmod 700 {} + ; find "$DEST" -type f -exec chmod 600 {} +
 python3 -m grok_bot_backup.archive "$DEST" "$ARCHIVE"
@@ -291,12 +317,15 @@ python3 -m grok_bot_backup.archive "$DEST" "$ARCHIVE"
 # summary
 python3 - "$DEST" "$ARCHIVE" <<'PY'
 import json, pathlib, sys
+from grok_bot_backup.archive import split_parts
 dest=pathlib.Path(sys.argv[1])
 archive=pathlib.Path(sys.argv[2])
+parts=split_parts(archive)
 m=json.loads((dest/"meta"/"MANIFEST.json").read_text(encoding="utf-8"))
 print("EXPORT_DIR="+str(dest))
 print("ARCHIVE="+str(archive))
-print("ARCHIVE_BYTES="+str(archive.stat().st_size))
+print("ARCHIVE_BYTES="+str(sum(p.stat().st_size for p in parts)))
+print("ARCHIVE_PARTS="+str(len(parts)))
 print("FILE_COUNT="+str(m["file_count"]))
 print("TOTAL_BYTES="+str(m["total_bytes"]))
 print("AGENT_COUNT="+str(m["agent_count"]))

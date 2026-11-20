@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 
 
@@ -16,18 +17,42 @@ def bulky(name: str) -> bool:
     return name.startswith(".venv") or name in {".cache", "node_modules", "__pycache__", ".git"}
 
 
+BACKUP_PREFIXES = ("grok-bot-export-", "virtual-office-")
+# Whole archives: NAME.zip, NAME-1ofN.zip and legacy tarballs.
+_ARCHIVE_RE = re.compile(r"\.(?:zip|tar\.gz|tgz|tar)$", re.IGNORECASE)
+# Split-archive volumes: standard split ZIP NAME.z01 ... NAME.z99, NAME.z100 ...
+# and numbered parts such as NAME.zip.001 / NAME.001 written by other tools.
+_VOLUME_RE = re.compile(r"(?:\.z\d{2,}|(?:\.(?:zip|7z|tar|tar\.gz|tgz))?\.\d{3,})$", re.IGNORECASE)
+# Plain-text files written next to divided output: NAME-RESTORE.txt,
+# NAME-SHA256SUMS.txt and NAME-CONTENTS.tsv (any extension or none).
+_SIDECAR_RE = re.compile(r"-(?:RESTORE|SHA256SUMS|CONTENTS)(?:\.[A-Za-z0-9]+)?$")
+
+
 def generated_backup_artifact(path: Path) -> str | None:
     """Omit old exports wherever they live, even when OUT_ROOT changes.
 
-    Only directories and supported archive files count: ordinary documents
-    with a similar prefix are not treated as previously generated backups.
+    Recognised (name must start with grok-bot-export- or virtual-office-):
+      * directories (unpacked or in-progress exports),
+      * archives: .zip (including -KofN.zip packs), .tar.gz, .tgz, .tar,
+      * split volumes: .z01, .z02 ... .z99, .z100 ..., and .001-style parts,
+      * sidecars: -RESTORE.txt, -SHA256SUMS.txt, -CONTENTS.tsv.
+
+    Ordinary documents with a similar prefix (for example
+    grok-bot-export-guide.md) are not treated as previously generated backups.
     """
-    if not path.name.startswith(("grok-bot-export-", "virtual-office-")):
+    name = path.name
+    if not name.startswith(BACKUP_PREFIXES):
         return None
     if path.is_dir():
         return "previous backup directory"
-    if path.is_file() and path.name.endswith((".tar.gz", ".tgz", ".tar", ".zip")):
+    if not path.is_file():
+        return None
+    if _ARCHIVE_RE.search(name):
         return "previous backup archive"
+    if _VOLUME_RE.search(name):
+        return "previous backup archive volume"
+    if _SIDECAR_RE.search(name):
+        return "previous backup sidecar"
     return None
 
 

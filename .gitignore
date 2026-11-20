@@ -1,11 +1,37 @@
 # Generated archives, temporary files and virtual environments
 exports/
 *.tar.gz
+*.tgz
+*.tar
 *.zip
 __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+
+# Backup output: full backups contain passwords and tokens in plain text and
+# this repository is public. Never commit any of these, wherever they appear.
+#   export folders and archives: grok-bot-export-<UTC>/ , virtual-office-<UTC>/ ,
+#     NAME.zip, NAME-1ofN.zip (Virtual Office packs)
+grok-bot-export-*
+virtual-office-*
+#   split ZIP volumes (NAME.z01 ... NAME.z99, NAME.z100 ...) and numbered parts
+#   such as NAME.zip.001 / NAME.001 written by other split tools
+*.z[0-9][0-9]
+*.z[0-9][0-9][0-9]
+*.z[0-9][0-9][0-9][0-9]
+*.[0-9][0-9][0-9]
+#   sidecars written next to divided output, including renamed copies
+*-RESTORE.txt
+*-SHA256SUMS.txt
+*-CONTENTS.tsv
+*RESTORE*.txt
+*SHA256SUMS*
+*CONTENTS*.tsv
+#   memory drops and per-run reports
+memory-drop/
+home-copy.json
+workspace-copy.json
 
 # Local configuration, credentials, databases, or backup data must not be committed
 config.json

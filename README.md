@@ -22,7 +22,7 @@ bin/export-grok-bot-backup.sh         # Raw data + portable conversations
 bin/export-virtual-office.sh         # Human-readable Markdown handover
 ```
 
-Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Both commands produce a standard `.zip` archive** (alongside the uncompressed export folder), which can be opened with Windows File Explorer. No additional compression utility or Python install is needed to *extract* the ZIP on Windows. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository.
+Backups are created under `OUT_ROOT` (default: `/workspace/exports`). Each command prints its output paths. **Both commands produce a standard `.zip` archive** (alongside the uncompressed export folder), which can be opened with Windows File Explorer. No additional compression utility or Python install is needed to *extract* the ZIP on Windows. **Neither command encrypts its results.** All accessible content, including passwords, private files, attachments, and credentials, is included by default. Restrictive Unix permissions do not replace encryption. Store the resulting archives wherever your own policy requires, and never commit real exports to a public repository. This repository's `.gitignore` excludes all generated output (export folders, `.zip`/`.z01`… volumes, `.001`-style parts and `-RESTORE` / `-SHA256SUMS` / `-CONTENTS` sidecars) as a safety net; do not force-add them.
 
 **Disk-space planning:** there is no fixed minimum. Size depends on your source data. Allow room for the uncompressed export directory **and** its compressed archive, plus headroom for other agents using the box. If the disk is limited, consider excluding large regenerable directories or choosing an external `OUT_ROOT`.
 
@@ -33,7 +33,7 @@ The export commands only write to the local `OUT_ROOT`. They do **not** upload a
 If you copy backups to Google Drive (or a similar remote folder):
 
 - Pick one fixed parent folder for all backups.
-- For each backup run, create a dated subfolder named `YYYY-MM-DD` (the run date in your own time zone) and put that run's `.zip` archives, verification reports and checksum files in it.
+- For each backup run, create a dated subfolder named `YYYY-MM-DD` (the run date in your own time zone) and put that run's `.zip` archives, verification reports and checksum files in it. If the upload tool has a per-file limit, set `ARCHIVE_SPLIT_SIZE` (see below) and upload **every** part plus the `-RESTORE.txt`, `-SHA256SUMS.txt` (and Virtual Office `-CONTENTS.tsv`) files. Never cut a ZIP into byte chunks yourself: a raw byte slice is not a valid ZIP and cannot be opened on its own.
 - Keep older dated folders as they are. Do not mix files from different runs in the same level.
 - If a Grok Bot assistant or routine does the upload, write this convention into the assistant's storage settings or the routine prompt so every run follows it.
 
@@ -72,10 +72,44 @@ Use `required: true` only for assistants you actually expect on your own box; `r
 
 ZIP uses standard compression with **ZIP64** support for files or archives over 4 GB and UTF-8 names for non-ASCII paths. Symlinks are saved **as Unix-style link entries without following their targets**, to prevent copying data outside the chosen backup scope. Windows built-in extraction does **not** re-create Unix symlinks or POSIX permissions reliably; this affects exact restoration, not the readability of ordinary documents. The original uncompressed export remains available for platform-specific recovery.
 
+### Upload services with a per-file size limit
+
+Some upload tools reject files above a fixed size (for example, a 100 MB cap per file). Set `ARCHIVE_SPLIT_SIZE` to the largest file you want to produce, leaving some headroom below the hard limit. **Recommended value for a 100 MB cap: `90MiB`.**
+
+```bash
+ARCHIVE_SPLIT_SIZE=90MiB bin/export-grok-bot-backup.sh
+ARCHIVE_SPLIT_SIZE=90MiB bin/export-virtual-office.sh
+# or: bin/export-virtual-office.sh --split-size 90MiB
+```
+
+Sizes accept bytes or `K`/`M`/`G` (`KiB`/`MiB`/`GiB`, powers of 1024) and `KB`/`MB`/`GB` (powers of 1000); the minimum is 64 KiB. **When the variable is unset or empty, nothing changes: each command writes one `.zip`.** An archive that already fits under the limit also stays a single `.zip`. When an archive is larger, the two exports use different layouts:
+
+| Export | Layout over the limit | Files to keep / upload |
+| --- | --- | --- |
+| Raw `grok-bot-export-<UTC>` (for computers and recovery) | **One standard split ZIP archive** (PKWARE APPNOTE §8.5, the same format as Info-ZIP `zip -s`): `NAME.z01`, `NAME.z02`, …, `NAME.zip`. Every part except the last is exactly the limit. | All `NAME.z??` parts, `NAME.zip`, `NAME-RESTORE.txt`, `NAME-SHA256SUMS.txt` |
+| Readable `virtual-office-<UTC>` (for people) | **Several complete ZIP files** `NAME-1ofN.zip` … `NAME-NofN.zip`, filled in file order until the next file would not fit. Each opens on its own (including Windows **Extract All…**). All packs share the same top-level folder, so extracting every pack into one folder rebuilds the full tree and keeps relative links working. | All `NAME-*ofN.zip` (plus any `.z??` parts, see below), `NAME-RESTORE.txt`, `NAME-CONTENTS.tsv`, `NAME-SHA256SUMS.txt` |
+
+`NAME-RESTORE.txt` is a plain-text file written **next to** the archives (not inside them) explaining how to open them. `NAME-SHA256SUMS.txt` works with `sha256sum -c`. `NAME-CONTENTS.tsv` lists which file is in which Virtual Office pack. If a single readable file is itself larger than the limit, it is stored alone in its own pack, which is then a split ZIP (`NAME-KofN.z01` … `NAME-KofN.zip`); the restore notes and contents list mark it.
+
+**Opening a split ZIP:** put all parts in one folder and open the `.zip` part (not `.z01`) with [7-Zip](https://www.7-zip.org/) or WinRAR, or `7zz x NAME.zip` on Linux/macOS. **Windows File Explorer cannot open split ZIP archives.** Without 7-Zip, this project can join the parts into an ordinary ZIP that any tool opens:
+
+```bash
+python3 -m grok_bot_backup.archive join NAME.zip NAME-joined.zip
+```
+
+Avoid joining with Info-ZIP `zip -s 0` or `zip -FF`: in our tests Info-ZIP 3.0 truncated files whose data spans more than two parts, even for split archives it had created itself. The split archive is written in pure Python; no extra package is needed to create or verify it.
+
 To verify a ZIP against a still-accessible Grok Bot box, pass it explicitly:
 
 ```bash
 bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC> --archive /workspace/exports/grok-bot-export-<UTC>.zip --strict
+```
+
+For split or multi-pack output, pass `NAME.zip` (split ZIP) or any one `NAME-KofN.zip` (Virtual Office packs); the verifier finds the other parts. It checks that every part is present, tests each ZIP (joining split archives in a temporary folder), confirms the members exactly match the export folder (same as an unsplit ZIP), and checks `NAME-SHA256SUMS.txt` when present:
+
+```bash
+bin/verify-export.sh /workspace/exports/grok-bot-export-<UTC> --archive /workspace/exports/grok-bot-export-<UTC>.zip
+bin/verify-export.sh /workspace/exports/virtual-office-<UTC> --archive /workspace/exports/virtual-office-<UTC>-1of2.zip
 ```
 
 Old `.tar.gz` backups remain readable by supported archive tools and can still be passed to `verify-export.sh --archive`. The exporter no longer creates new `.tar.gz` files by default.
@@ -108,6 +142,35 @@ Large build/caching directories (`.venv*`, `.cache`, `node_modules`, `__pycache_
 ```bash
 INCLUDE_BULKY_DIRS=1 INCLUDE_SUBAGENTS=1 bin/export-grok-bot-backup.sh
 INCLUDE_BULKY_DIRS=1 bin/export-virtual-office.sh
+```
+
+### Home directory (`/home/box`): included by default, **with password files**
+
+Files that assistants or tools keep in the box home directory, outside `WORKSPACE` and `AGENT_DATA`, are backed up too: for example credential folders (`.secrets/`), folders that assistants create for themselves (often hidden, such as `.<name>/`), tool settings (`.config/`, `.gitconfig`) and MCP sign-in data (`.mcp-auth/`). **These usually contain passwords, API keys and tokens. They are copied unencrypted.** The raw export stores them in `home/`; the Virtual Office export stores them in `00-shared/box-home/` (the same way it already includes the workspace).
+
+Always omitted, to avoid duplicates and recursion (paths are compared after resolving symlinks): `AGENT_DATA` and its real target (for example the `agent-data` link and the folder it points to), `WORKSPACE` if it lies inside the home directory, `OUT_ROOT`, `$WORKSPACE/exports`, and earlier `grok-bot-export-*` / `virtual-office-*` folders and archives.
+
+Omitted by default because they can be rebuilt:
+
+| Path | Why |
+| --- | --- |
+| `.cache/` | Caches (pip, uv, browsers, tools) rebuilt automatically |
+| `.npm/` | npm package cache |
+| `.local/lib/`, `.local/include/` | Installed Python packages, reinstallable (the rest of `.local/`, e.g. `share/keyrings`, is kept) |
+| `chrome-profile/` | Browser profile: large, mostly cache; its sign-in sessions are tied to this machine |
+| `.venv*`, `node_modules`, `__pycache__`, `.git` anywhere | Same bulky-folder rule as the workspace (`INCLUDE_BULKY_DIRS=1` keeps them) |
+
+Symbolic links are copied as links and never followed. Files or folders the backup cannot read are skipped and listed under `unreadable` in the report instead of stopping the backup. The report — `meta/home-copy.json` (raw) or `home-copy.json` (Virtual Office) — lists what was copied per top-level entry, every omitted path with its reason and size, and unreadable paths.
+
+With `INCLUDE_HOME=1` (the default) a missing `BOX_HOME` is an **error**: both exporters stop before copying anything instead of quietly producing a backup without the home directory. Use `INCLUDE_HOME=0` to skip it on purpose. Every copied file is re-read and compared with the bytes read from the source (size and SHA-256); a write error or mismatch, or a finished copy whose file, link or byte totals differ from what was copied, also stops the backup. The report records each file's size and SHA-256 under `file_hashes`, and `verify-export.sh` rechecks the copy against them (missing, changed or unexpected files fail; an old report that says the home directory was not found also fails). Files that grew or shrank while being read are listed under `changed_during_copy` (the copy holds what was read).
+
+Earlier backups found anywhere in `WORKSPACE` or the home directory are never copied again: `grok-bot-export-*` / `virtual-office-*` folders, archives (`.zip`, `-KofN.zip`, `.tar.gz`), split volumes (`.z01`, `.z02` … `.z99`, `.z100` …, and `.001`-style parts) and their `-RESTORE.txt`, `-SHA256SUMS.txt` and `-CONTENTS.tsv` sidecars. Other files that merely start with those prefixes, such as `grok-bot-export-guide.md`, are kept.
+
+```bash
+INCLUDE_HOME=0 bin/export-grok-bot-backup.sh                     # do not copy the home directory
+BOX_HOME=/home/otheruser bin/export-grok-bot-backup.sh           # different home directory
+HOME_EXCLUDE_PATHS=".ssh:big-downloads" bin/export-grok-bot-backup.sh   # omit more (relative to BOX_HOME or absolute)
+HOME_INCLUDE_PATHS="chrome-profile" bin/export-grok-bot-backup.sh       # keep a default exclusion after all
 ```
 
 **Warning:** "All accessible data" cannot include information the local platform does not expose. See memory preparation below.
@@ -166,7 +229,7 @@ Shared user memory may use the same mechanism under `shared-user/memory-status.j
 
 ### ZIP archive verification
 
-Each finished export now includes a `.zip` archive and an uncompressed directory. The normal folder check verifies contents against the live source index; add `--archive /path/to/file.zip` to also check the ZIP's file integrity and confirm it includes the backup program snapshot. Verification remains able to inspect legacy `.tar.gz` archives.
+Each finished export now includes a `.zip` archive and an uncompressed directory. The normal folder check verifies contents against the live source index; add `--archive /path/to/file.zip` to also check the ZIP's file integrity, confirm it includes the backup program snapshot, and confirm its members match the export folder. Split archives and Virtual Office packs are supported (see [Upload services with a per-file size limit](#upload-services-with-a-per-file-size-limit)). Verification remains able to inspect legacy `.tar.gz` archives.
 
 
 ```bash
@@ -199,6 +262,11 @@ Inspect the raw export's `meta/MANIFEST.json`, `meta/workspace-copy.json`, and `
 | `INCLUDE_SUBAGENTS` | `0` | Set `1` to include sand-subagent transcripts in raw backup |
 | `MEMORY_DROP` | `$WORKSPACE/exports/memory-drop` | Pre-exported platform memory files |
 | `MEMORY_MAX_AGE_DAYS` | `2` | Max age of a memory drop before WARN / strict FAIL |
+| `INCLUDE_HOME` | `1` | Set `0` to skip the home directory |
+| `BOX_HOME` | `/home/box` | Home directory to back up |
+| `HOME_EXCLUDE_PATHS` | empty | Extra colon-separated home paths to omit (relative to `BOX_HOME` or absolute) |
+| `HOME_INCLUDE_PATHS` | empty | Default home exclusions to keep anyway (`.cache`, `.npm`, `.local/lib`, `.local/include`, `chrome-profile`) |
+| `ARCHIVE_SPLIT_SIZE` | empty (one `.zip`) | Largest output file, e.g. `90MiB`; larger raw archives become a split ZIP, larger readable archives become several complete ZIPs |
 | `GROK_BACKUP_CONFIG` | `<repo>/config.json` | Optional expected agent roster |
 | `GROK_BACKUP_USER_LABEL` | `User` | Conversation label for the human side |
 
@@ -211,13 +279,14 @@ Older `NUWA_BACKUP_CONFIG` and `NUWA_BACKUP_USER_LABEL` environment variables re
 - `agents/`: **complete accessible source tree**, including actual assistant UUID directories (with `private/`, notes, settings, attachments and databases), plus non-assistant directories such as `organization/`, `people/`, `procedures/` and top-level metadata such as `active-agent.json` and `audit-outbox.json`. These non-assistant entries are preserved as raw data but **never counted as assistants**.
 - `shared/`: local shared memory, projects, workflows, and optionally frozen subagent transcripts.
 - `workspace/`: shared workspace files, subject to configurable exclusions.
+- `home/`: the box home directory (default `/home/box`), **including credential and settings files**; omissions in `meta/home-copy.json`.
 - `conversations/`: monthly human-readable Markdown and raw JSONL from the platform-synchronized SQLite index. Non-assistant identifiers (such as `organization`, `people`, `procedures`) are not treated as assistants or displayed as `Unknown assistant`. The raw archive also keeps a consistent `conversations/search-index-snapshot.db` SQLite copy, including platform records that are not assistant conversations.
 - `platform-memory/`: readable RecallMemory export, when supplied.
 - `meta/`: file inventory, workspace omissions, and this program's git revision.
 
 ### Human-readable export: `virtual-office-<UTC>/`
 
-- `00-shared/`: available projects, shared memory, skills, **workspace outputs**.
+- `00-shared/`: available projects, shared memory, skills, **workspace outputs**, and `box-home/` (home directory, **including credential files**).
 - `01-assistants/<name>/`: profiles, notes, **private** content, routines, attachments, conversations, memory.
 - `02-groups/<name>/`: group information and conversations.
 - `99-backup-program/`: source code version and conversation statistics.
